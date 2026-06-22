@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseMind — Nigeria Election Sentiment Intelligence</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23FF3D5A'/><path d='M4 16 h5 l3-8 l4 16 l3-12 l3 7 l3-3 h3' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── LANDING PAGE ── -->
+  <div id="landing-page" class="page active">
+
+    <nav class="nav">
+      <div class="nav-logo">
+        <div class="logo-mark">
+          <svg viewBox="0 0 20 14" fill="none"><path d="M1 7h3l2.5-6 3.5 13 3-10 2 5 2-2h2" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <span>PulseMind</span>
+      </div>
+      <div class="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#contact">Contact</a>
+      </div>
+      <button class="btn-primary" onclick="showApp()">Launch Dashboard →</button>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-tag">
+          <span class="live-pulse"></span>
+          <span>Nigeria 2027 Presidential Election · Jan 16, 2027</span>
+        </div>
+        <h1 class="hero-h1">Know what Nigeria<br><em>feels</em> before you decide</h1>
+        <p class="hero-sub">
+          Real-time AI sentiment intelligence across social media, news, and forums —
+          built for Nigerian political campaigns and brands that can't afford to guess.
+        </p>
+        <div class="hero-cta">
+          <button class="btn-primary btn-lg" onclick="showApp()">Try Live Dashboard →</button>
+          <a href="#how-it-works" class="btn-ghost btn-lg">See how it works</a>
+        </div>
+        <div class="hero-proof">
+          <div class="proof-item"><span class="proof-num">2.4B+</span><span class="proof-lbl">Posts analyzed daily</span></div>
+          <div class="proof-div"></div>
+          <div class="proof-item"><span class="proof-num">40+</span><span class="proof-lbl">Data sources</span></div>
+          <div class="proof-div"></div>
+          <div class="proof-item"><span class="proof-num">94.7%</span><span class="proof-lbl">Accuracy rate</span></div>
+          <div class="proof-div"></div>
+          <div class="proof-item"><span class="proof-num">&lt;90s</span><span class="proof-lbl">Detection latency</span></div>
+        </div>
+      </div>
+
+      <!-- animated signal graphic -->
+      <div class="hero-visual" aria-hidden="true">
+        <div class="signal-card">
+          <div class="sc-top">
+            <div class="sc-dot pos"></div>
+            <span>Live · Nigeria Election</span>
+            <span class="sc-time">Now</span>
+          </div>
+          <div class="sc-bars">
+            <div class="sc-bar-col"><div class="sc-bar pos" style="--h:62%"></div><span>Positive</span></div>
+            <div class="sc-bar-col"><div class="sc-bar neg" style="--h:28%"></div><span>Negative</span></div>
+            <div class="sc-bar-col"><div class="sc-bar neu" style="--h:10%"></div><span>Neutral</span></div>
+          </div>
+          <div class="sc-stats">
+            <div><strong>284K</strong><span>mentions today</span></div>
+            <div><strong>62%</strong><span>positive</span></div>
+          </div>
+          <div class="sc-insight">🧠 <em>AI Insight:</em> "Fuel subsidy" driving 38% of negative posts — address proactively</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="how-section" id="how-it-works">
+      <div class="section-tag">How it works</div>
+      <h2 class="section-h2">From raw noise to clear action in 3 steps</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">01</div>
+          <div class="step-icon">📡</div>
+          <h3>Track any topic</h3>
+          <p>Enter a candidate name, party, policy, or brand. PulseMind scans X/Twitter, Facebook, YouTube, Reddit, and Nigerian news outlets in real time.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">02</div>
+          <div class="step-icon">🧠</div>
+          <h3>AI reads the feeling</h3>
+          <p>Our AI classifies every mention as positive, negative, or neutral — understanding Nigerian Pidgin, Yoruba, Hausa, and Igbo-inflected expressions.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">03</div>
+          <div class="step-icon">⚡</div>
+          <h3>Know exactly what to do</h3>
+          <p>Get AI-generated action plans: how to amplify what's working, neutralize what's hurting you, and which accounts to engage immediately.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo-cta-section">
+      <div class="demo-cta-inner">
+        <div class="demo-cta-tag">Interactive Demo</div>
+        <h2>See PulseMind analyze a real Nigerian political topic — right now</h2>
+        <p>Type any candidate name, party, or topic. Our AI will analyze it and return live sentiment intelligence.</p>
+        <button class="btn-primary btn-lg" onclick="showApp()">Open the Live Dashboard →</button>
+      </div>
+    </section>
+
+    <section class="pricing-section" id="pricing">
+      <div class="section-tag">Pricing</div>
+      <h2 class="section-h2">Built for the Nigerian market</h2>
+      <p class="section-sub">Campaign season pricing. Cancel anytime.</p>
+      <div class="pricing-grid">
+        <div class="price-card">
+          <div class="price-tier">Campaign Monitor</div>
+          <div class="price-amount">₦250,000<span>/month</span></div>
+          <div class="price-desc">State campaigns, party branches, and local brands</div>
+          <ul class="price-list">
+            <li>3 topic trackers</li>
+            <li>500K mentions/month</li>
+            <li>Weekly AI briefing</li>
+            <li>X, Facebook & News</li>
+            <li>PDF exports</li>
+          </ul>
+          <button class="btn-outline" onclick="showContact()">Get Started</button>
+        </div>
+        <div class="price-card featured">
+          <div class="price-badge">Most Popular</div>
+          <div class="price-tier">War Room Pro</div>
+          <div class="price-amount">₦750,000<span>/month</span></div>
+          <div class="price-desc">Gubernatorial and senatorial campaigns</div>
+          <ul class="price-list">
+            <li>15 topic trackers</li>
+            <li>5M mentions/month</li>
+            <li>Daily AI action plans</li>
+            <li>40+ platforms</li>
+            <li>Top account attribution</li>
+            <li>Geo-sentiment heatmaps</li>
+            <li>Real-time alerts</li>
+          </ul>
+          <button class="btn-primary" onclick="showContact()">Get Started</button>
+        </div>
+        <div class="price-card">
+          <div class="price-tier">Presidential Suite</div>
+          <div class="price-amount">₦3,000,000<span>/month</span></div>
+          <div class="price-desc">Presidential campaigns and national parties</div>
+          <ul class="price-list">
+            <li>Unlimited trackers</li>
+            <li>Unlimited mentions</li>
+            <li>Dedicated analyst</li>
+            <li>Custom AI fine-tuning</li>
+            <li>War room briefings</li>
+            <li>24/7 crisis monitoring</li>
+            <li>White-label option</li>
+          </ul>
+          <button class="btn-outline" onclick="showContact()">Book a Call</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="contact-section" id="contact">
+      <div class="contact-inner">
+        <div class="section-tag">Early Access</div>
+        <h2>Campaigns start August 19, 2026.<br>Be ready before your opponents.</h2>
+        <div class="contact-form-wrap">
+          <div class="contact-form">
+            <input type="text" id="contact-name" placeholder="Your name" />
+            <input type="text" id="contact-org" placeholder="Campaign / Organisation" />
+            <input type="email" id="contact-email" placeholder="Email address" />
+            <select id="contact-tier">
+              <option value="">Select a plan...</option>
+              <option>Campaign Monitor — ₦250,000/month</option>
+              <option>War Room Pro — ₦750,000/month</option>
+              <option>Presidential Suite — ₦3,000,000/month</option>
+              <option>Custom / Enterprise</option>
+            </select>
+            <button class="btn-primary btn-lg" onclick="submitContact()">Request Early Access →</button>
+          </div>
+          <div class="contact-info">
+            <div class="ci-item">📧 <span>hello@pulsemind.ng</span></div>
+            <div class="ci-item">📞 <span>+234 — Book a call</span></div>
+            <div class="ci-item">📍 <span>Lagos · Abuja · Remote</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <div class="logo-mark sm">
+            <svg viewBox="0 0 20 14" fill="none"><path d="M1 7h3l2.5-6 3.5 13 3-10 2 5 2-2h2" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          PulseMind
+        </div>
+        <p class="footer-tag">Real-time sentiment intelligence for Nigerian campaigns and brands.</p>
+        <p class="footer-copy">© 2026 PulseMind Intelligence. All rights reserved.</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ── DASHBOARD APP ── -->
+  <div id="app-page" class="page">
+    <div class="app-layout">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-logo" onclick="showLanding()" style="cursor:pointer" title="Back to home">
+          <div class="logo-mark sm">
+            <svg viewBox="0 0 20 14" fill="none"><path d="M1 7h3l2.5-6 3.5 13 3-10 2 5 2-2h2" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <span>PulseMind</span>
+        </div>
+
+        <div class="sidebar-section-label">Monitor</div>
+        <div class="sidebar-item active" onclick="setView('dashboard')"><span>📊</span> Dashboard</div>
+        <div class="sidebar-item" onclick="setView('analyze')"><span>🔍</span> Analyze Topic</div>
+        <div class="sidebar-item" onclick="setView('feed')"><span>📡</span> Live Feed</div>
+
+        <div class="sidebar-section-label">Intelligence</div>
+        <div class="sidebar-item" onclick="setView('accounts')"><span>👥</span> Top Accounts</div>
+        <div class="sidebar-item" onclick="setView('insights')"><span>🧠</span> AI Insights</div>
+        <div class="sidebar-item" onclick="setView('reports')"><span>📄</span> Reports</div>
+
+        <div class="sidebar-section-label">Nigeria 2027</div>
+        <div class="sidebar-item" onclick="setView('candidates')"><span>🇳🇬</span> Candidates</div>
+        <div class="sidebar-item" onclick="setView('alerts')"><span>⚡</span> Alerts</div>
+
+        <div class="sidebar-footer">
+          <button class="btn-outline sm" onclick="showLanding()">← Back to Home</button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="app-main">
+        <!-- View: Dashboard -->
+        <div id="view-dashboard" class="view active">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">Dashboard</h2>
+              <p class="view-sub">Nigeria Presidential Election 2027 — Sentiment Overview</p>
+            </div>
+            <div class="header-actions">
+              <div class="live-badge"><span class="live-pulse sm"></span> Live</div>
+              <button class="btn-outline sm" onclick="setView('analyze')">+ New Analysis</button>
+            </div>
+          </div>
+
+          <!-- Topic search bar -->
+          <div class="topic-bar">
+            <div class="topic-bar-label">Tracking topic:</div>
+            <input id="dash-topic-input" class="topic-input" type="text" placeholder="Enter candidate, party, or topic..." value="Nigeria Presidential Election 2027" />
+            <button class="btn-primary sm" id="dash-analyze-btn" onclick="runDashboardAnalysis()">Analyze →</button>
+          </div>
+
+          <!-- Metrics -->
+          <div class="metrics-row" id="dash-metrics">
+            <div class="metric-card" data-accent="purple">
+              <div class="metric-label">Total Mentions</div>
+              <div class="metric-val" id="m-total">284K</div>
+              <div class="metric-delta up">↑ 18.4% this week</div>
+            </div>
+            <div class="metric-card" data-accent="green">
+              <div class="metric-label">Positive</div>
+              <div class="metric-val" id="m-pos">62%</div>
+              <div class="metric-delta up" id="m-pos-delta">↑ 5.2% vs last week</div>
+            </div>
+            <div class="metric-card" data-accent="red">
+              <div class="metric-label">Negative</div>
+              <div class="metric-val" id="m-neg">24%</div>
+              <div class="metric-delta down" id="m-neg-delta">↑ 3.1% vs last week</div>
+            </div>
+            <div class="metric-card" data-accent="amber">
+              <div class="metric-label">Neutral</div>
+              <div class="metric-val" id="m-neu">14%</div>
+              <div class="metric-delta" id="m-neu-delta">Stable</div>
+            </div>
+          </div>
+
+          <!-- Charts row -->
+          <div class="charts-row">
+            <div class="panel chart-panel">
+              <div class="panel-header">
+                <span class="panel-title">7-Day Sentiment Trend</span>
+                <span class="panel-meta" id="chart-topic-label">Nigeria Presidential Election 2027</span>
+              </div>
+              <canvas id="trend-chart" height="160"></canvas>
+            </div>
+            <div class="panel donut-panel">
+              <div class="panel-header"><span class="panel-title">Sentiment Split</span></div>
+              <canvas id="donut-chart" width="160" height="160"></canvas>
+              <div class="donut-legend" id="donut-legend">
+                <div class="dl-item"><span class="dl-dot" style="background:#00D4AA"></span><span>Positive</span><strong id="dl-pos">62%</strong></div>
+                <div class="dl-item"><span class="dl-dot" style="background:#FF3D5A"></span><span>Negative</span><strong id="dl-neg">24%</strong></div>
+                <div class="dl-item"><span class="dl-dot" style="background:#FFB020"></span><span>Neutral</span><strong id="dl-neu">14%</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Insights -->
+          <div class="panel insights-panel">
+            <div class="panel-header">
+              <span class="panel-title">🧠 AI Action Insights</span>
+              <span class="panel-badge loading-badge" id="dash-insights-badge">Loading…</span>
+            </div>
+            <div id="dash-insights-content" class="insights-content">
+              <div class="insight-skeleton"></div>
+              <div class="insight-skeleton"></div>
+              <div class="insight-skeleton"></div>
+            </div>
+          </div>
+
+          <!-- Top accounts -->
+          <div class="panel accounts-panel">
+            <div class="panel-header">
+              <span class="panel-title">Top Accounts by Reach</span>
+              <span class="panel-meta">This week</span>
+            </div>
+            <div id="dash-accounts" class="accounts-list">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Analyze Topic -->
+        <div id="view-analyze" class="view">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">Analyze Topic</h2>
+              <p class="view-sub">Enter any candidate, party, policy, or brand to get AI sentiment analysis</p>
+            </div>
+          </div>
+
+          <div class="analyze-box">
+            <div class="analyze-prompt">
+              <label class="analyze-label">What do you want to analyze?</label>
+              <input id="analyze-topic" class="analyze-input" type="text"
+                placeholder="e.g. Peter Obi, APC fuel policy, Tinubu economic plan, Dangote refinery…" />
+              <div class="analyze-examples">
+                <span>Try:</span>
+                <button onclick="setAnalyzeTopic('Peter Obi 2027')">Peter Obi 2027</button>
+                <button onclick="setAnalyzeTopic('APC presidential campaign')">APC campaign</button>
+                <button onclick="setAnalyzeTopic('Nigeria fuel subsidy removal')">Fuel subsidy</button>
+                <button onclick="setAnalyzeTopic('Seyi Makinde president')">Seyi Makinde</button>
+                <button onclick="setAnalyzeTopic('el-Rufai 2027')">el-Rufai 2027</button>
+              </div>
+              <button class="btn-primary btn-lg" id="analyze-btn" onclick="runAnalysis()">
+                Run Analysis →
+              </button>
+            </div>
+
+            <div id="analyze-loading" class="analyze-loading hidden">
+              <div class="loading-pulse"></div>
+              <div class="loading-lines">
+                <p>Scanning social platforms…</p>
+                <p>Reading Nigerian conversations…</p>
+                <p>Generating sentiment intelligence…</p>
+              </div>
+            </div>
+
+            <div id="analyze-results" class="analyze-results hidden">
+              <!-- populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Live Feed -->
+        <div id="view-feed" class="view">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">Live Feed</h2>
+              <p class="view-sub">AI-simulated real-time mentions stream</p>
+            </div>
+            <div class="live-badge"><span class="live-pulse sm"></span> Live</div>
+          </div>
+          <div class="feed-filter-bar">
+            <button class="feed-filter active" data-filter="all" onclick="setFeedFilter(this,'all')">All</button>
+            <button class="feed-filter" data-filter="positive" onclick="setFeedFilter(this,'positive')">Positive</button>
+            <button class="feed-filter" data-filter="negative" onclick="setFeedFilter(this,'negative')">Negative</button>
+            <button class="feed-filter" data-filter="neutral" onclick="setFeedFilter(this,'neutral')">Neutral</button>
+          </div>
+          <div id="feed-container" class="feed-container">
+            <!-- populated by JS -->
+          </div>
+        </div>
+
+        <!-- View: Top Accounts -->
+        <div id="view-accounts" class="view">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">Top Accounts</h2>
+              <p class="view-sub">Accounts with highest reach driving sentiment this week</p>
+            </div>
+          </div>
+          <div id="accounts-full-list" class="accounts-full">
+            <!-- populated by JS -->
+          </div>
+        </div>
+
+        <!-- View: AI Insights -->
+        <div id="view-insights" class="view">
+          <div class="view-header">
+            <div>
+              <h2 class="view-title">AI Insights</h2>
+              <p class="view-sub">Strategic recommendations generated by PulseMind AI</p>
+            </div>
+            <button class="btn-primary sm" id="refresh-insights-btn" onclick="refreshInsights()">Refresh Insights</button>
+          </div>
+          <div id="insights-full-content" class="insights-full">
+            <div class="insights-loading-state">
+              <div class="loading-pulse"></div>
+              <p>Generating strategic insights…</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- View: Reports -->
+        <div id="view-reports" class="view">
+          <div class="view-header">
+            <div><h2 class="view-title">Reports</h2><p class="view-sub">Download and share intelligence reports</p></div>
+          </div>
+          <div class="reports-grid">
+            <div class="report-card">
+              <div class="report-icon">📊</div>
+              <div class="report-info">
+                <h3>Weekly Sentiment Briefing</h3>
+                <p>Full 7-day overview with trend analysis and top accounts</p>
+              </div>
+              <button class="btn-outline sm" onclick="generateReport('weekly')">Generate PDF</button>
+            </div>
+            <div class="report-card">
+              <div class="report-icon">🧠</div>
+              <div class="report-info">
+                <h3>AI Strategy Report</h3>
+                <p>AI-generated campaign recommendations based on current sentiment</p>
+              </div>
+              <button class="btn-outline sm" onclick="generateReport('strategy')">Generate PDF</button>
+            </div>
+            <div class="report-card">
+              <div class="report-icon">👥</div>
+              <div class="report-info">
+                <h3>Influencer Intelligence</h3>
+                <p>Top accounts, their reach, and sentiment direction</p>
+              </div>
+              <button class="btn-outline sm" onclick="generateReport('influencer')">Generate PDF</button>
+            </div>
+            <div class="report-card">
+              <div class="report-icon">⚡</div>
+              <div class="report-info">
+                <h3>Crisis Alert Report</h3>
+                <p>Negative sentiment spikes, triggers, and recommended responses</p>
+              </div>
+              <button class="btn-outline sm" onclick="generateReport('crisis')">Generate PDF</button>
+            </div>
+          </div>
+          <div id="report-output" class="report-output hidden"></div>
+        </div>
+
+        <!-- View: Nigeria Candidates -->
+        <div id="view-candidates" class="view">
+          <div class="view-header">
+            <div><h2 class="view-title">Nigeria 2027 Candidates</h2><p class="view-sub">Live sentiment tracker for confirmed presidential candidates</p></div>
+          </div>
+          <div class="candidates-grid" id="candidates-grid">
+            <!-- populated by JS -->
+          </div>
+        </div>
+
+        <!-- View: Alerts -->
+        <div id="view-alerts" class="view">
+          <div class="view-header">
+            <div><h2 class="view-title">Alerts</h2><p class="view-sub">Set up real-time notifications for sentiment changes</p></div>
+          </div>
+          <div class="alerts-setup">
+            <div class="panel">
+              <h3 class="panel-title" style="margin-bottom:16px">Configure Alerts</h3>
+              <div class="alert-form">
+                <label>Alert me when negative sentiment exceeds:</label>
+                <div class="alert-input-row">
+                  <input type="number" id="alert-threshold" value="30" min="10" max="90" /> <span>%</span>
+                </div>
+                <label>For topic:</label>
+                <input type="text" id="alert-topic" placeholder="Candidate or topic name…" />
+                <label>Notify via:</label>
+                <div class="alert-channels">
+                  <label><input type="checkbox" checked /> Email</label>
+                  <label><input type="checkbox" /> WhatsApp</label>
+                  <label><input type="checkbox" /> SMS</label>
+                </div>
+                <button class="btn-primary" onclick="saveAlert()">Save Alert</button>
+              </div>
+            </div>
+            <div class="panel">
+              <h3 class="panel-title" style="margin-bottom:16px">Active Alerts</h3>
+              <div id="active-alerts-list">
+                <div class="alert-item">
+                  <div class="alert-item-info">
+                    <strong>Nigeria Presidential Election 2027</strong>
+                    <span>Negative &gt; 35% → Email</span>
+                  </div>
+                  <div class="alert-status active-status">Active</div>
+                </div>
+                <div class="alert-item">
+                  <div class="alert-item-info">
+                    <strong>Tinubu economic policy</strong>
+                    <span>Negative &gt; 40% → Email + WhatsApp</span>
+                  </div>
+                  <div class="alert-status active-status">Active</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
