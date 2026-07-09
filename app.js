@@ -1,857 +1,912 @@
-/* ═══════════════════════════════════════════
-   PULSEMIND MVP — app.js
-   AI-powered sentiment intelligence platform
-   Powered by Claude (Anthropic)
-═══════════════════════════════════════════ */
-
 'use strict';
+/* ═══════════════════════════════════════
+   PULSEMIND V2 — app.js
+   Multi-topic simultaneous tracking
+   Powered by Claude AI (Anthropic)
+═══════════════════════════════════════ */
 
-// ── STATE ──────────────────────────────────
-const state = {
-  currentView: 'dashboard',
-  currentTopic: 'Nigeria Presidential Election 2027',
+// ── STATE ─────────────────────────────
+const S = {
+  topics: {},        // { id: { id, name, color, status, data } }
+  activeId: null,
+  view: 'empty',
   feedFilter: 'all',
-  feedItems: [],
   feedInterval: null,
-  insightsLoaded: false,
+  topicOrder: [],    // ordered list of ids
 };
 
-// ── CLAUDE API ─────────────────────────────
-async function callClaude(systemPrompt, userPrompt, maxTokens = 900) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
+const COLORS = ['#FF3D5A','#6B4EFF','#00D4AA','#FFB020','#FF6B35','#00B4D8','#E040FB','#69F0AE','#FF80AB','#82B1FF'];
+let colorIdx = 0;
+function nextColor(){ return COLORS[colorIdx++ % COLORS.length]; }
+
+// ── CLAUDE API ─────────────────────────
+async function callClaude(system, user, maxTokens=1000){
+  const res = await fetch('/api/claude',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens, system, messages:[{role:'user',content:user}] })
   });
-  if (!response.ok) throw new Error(`API error: ${response.status}`);
-  const data = await response.json();
-  return data.content.map(b => b.text || '').join('');
+  if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error||`HTTP ${res.status}`); }
+  const d = await res.json();
+  return d.content.map(b=>b.text||'').join('');
 }
 
-// ── PAGE NAVIGATION ─────────────────────────
-function showApp() {
-  document.getElementById('landing-page').classList.remove('active');
-  document.getElementById('app-page').classList.add('active');
-  setView('dashboard');
-  initDashboard();
+function safeJSON(raw){
+  const c = raw.replace(/```json|```/g,'').trim();
+  const s = c.indexOf('[')!==-1 && (c.indexOf('{')===-1 || c.indexOf('[') < c.indexOf('{')) ? '[' : '{';
+  const e = s==='[' ? ']' : '}';
+  return JSON.parse(c.slice(c.indexOf(s), c.lastIndexOf(e)+1));
 }
 
-function showLanding() {
-  document.getElementById('app-page').classList.remove('active');
-  document.getElementById('landing-page').classList.add('active');
-  if (state.feedInterval) { clearInterval(state.feedInterval); state.feedInterval = null; }
+// ── TOAST ──────────────────────────────
+function toast(msg, dur=3000){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.remove('hidden');
+  clearTimeout(t._t);
+  t._t=setTimeout(()=>t.classList.add('hidden'),dur);
 }
 
-function showContact() {
-  document.getElementById('app-page').classList.remove('active');
-  document.getElementById('landing-page').classList.add('active');
-  setTimeout(() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' }), 100);
+// ── SIDEBAR COLLAPSE ───────────────────
+function toggleSidebar(){
+  document.querySelector('.app').classList.toggle('collapsed');
 }
 
-// ── VIEW SWITCHING ──────────────────────────
-function setView(view) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+// ── MAIN VIEW SWITCHING ────────────────
+function setMainView(v){
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.sb-nav-item').forEach(el=>el.classList.remove('active'));
+  S.view = v;
 
-  const el = document.getElementById('view-' + view);
-  if (el) el.classList.add('active');
+  // Show the right view, fall back to empty
+  const viewEl = document.getElementById('view-'+v);
+  if(viewEl) viewEl.classList.add('active');
+  else document.getElementById('view-empty')?.classList.add('active');
 
-  const sidebarItem = document.querySelector(`.sidebar-item[onclick="setView('${view}')"]`);
-  if (sidebarItem) sidebarItem.classList.add('active');
+  const navEl = document.getElementById('nav-'+v);
+  if(navEl) navEl.classList.add('active');
 
-  state.currentView = view;
+  // Kill feed interval when leaving feed
+  if(v !== 'feed' && S.feedInterval){ clearInterval(S.feedInterval); S.feedInterval = null; }
 
-  // Lazy-init views
-  if (view === 'feed') initFeed();
-  if (view === 'accounts') initAccountsFull();
-  if (view === 'insights') initInsightsFull();
-  if (view === 'candidates') initCandidates();
+  // Lazy-render views
+  if(v === 'feed') startFeed();
+  if(v === 'compare') renderCompare();
+  if(v === 'sources'   && S.activeId) renderSources();
+  if(v === 'accounts'  && S.activeId) renderAccounts();
+  if(v === 'locations' && S.activeId) renderLocations();
+  if(v === 'insights'  && S.activeId) loadInsights();
+  if(v === 'settings') renderSettings();
+  if(v === 'overview'  && S.activeId && S.topics[S.activeId]?.status==='ready') renderOverview();
 }
 
-// ── TOAST ───────────────────────────────────
-function showToast(msg, duration = 3000) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), duration);
+// ── TOPIC MANAGEMENT ──────────────────
+function openAddTopic(){
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('new-topic-input').focus(),100);
 }
-
-// ══════════════════════════════════════════
-//  DASHBOARD
-// ══════════════════════════════════════════
-async function initDashboard() {
-  renderAccounts(getDemoAccounts(), 'dash-accounts');
-  drawTrendChart(getChartData('Nigeria Presidential Election 2027'));
-  drawDonutChart(62, 24, 14);
-  await loadDashInsights('Nigeria Presidential Election 2027');
+function closeAddTopic(){
+  document.getElementById('modal-overlay').classList.add('hidden');
+  document.getElementById('new-topic-input').value='';
 }
+function closeModal(e){
+  if(e.target===document.getElementById('modal-overlay')) closeAddTopic();
+}
+function setModalTopic(t){ document.getElementById('new-topic-input').value=t; }
 
-async function runDashboardAnalysis() {
-  const topic = document.getElementById('dash-topic-input').value.trim();
-  if (!topic) { showToast('Please enter a topic to analyze.'); return; }
+async function addTopic(){
+  const name = document.getElementById('new-topic-input').value.trim();
+  if(!name){ toast('Please enter a topic name.'); return; }
 
-  state.currentTopic = topic;
+  // Check dupe
+  const exists = Object.values(S.topics).find(t=>t.name.toLowerCase()===name.toLowerCase());
+  if(exists){ toast('This topic is already being tracked.'); setActiveTopic(exists.id); closeAddTopic(); return; }
 
-  const btn = document.getElementById('dash-analyze-btn');
-  btn.textContent = 'Analyzing…';
-  btn.disabled = true;
+  const id = 'topic_'+Date.now();
+  const color = nextColor();
 
-  document.getElementById('dash-insights-badge').textContent = 'Analyzing…';
-  document.getElementById('dash-insights-badge').className = 'panel-badge loading-badge';
-  document.getElementById('dash-insights-content').innerHTML = `
-    <div class="insight-skeleton"></div>
-    <div class="insight-skeleton"></div>
-    <div class="insight-skeleton"></div>`;
+  S.topics[id] = { id, name, color, status:'loading', data:null };
+  S.topicOrder.push(id);
+  closeAddTopic();
+  renderTopicList();
+  setActiveTopic(id);
+  toast(`⏳ Tracking "${name}"…`);
 
   try {
-    const nums = await getSentimentNumbers(topic);
-    updateMetrics(nums);
-    drawTrendChart(getChartData(topic));
-    drawDonutChart(nums.pos, nums.neg, nums.neu);
-    document.getElementById('chart-topic-label').textContent = topic;
-    await loadDashInsights(topic);
-    showToast(`✅ Analysis complete for "${topic}"`);
-  } catch (e) {
-    showToast('❌ Error running analysis. Check your connection.');
-    console.error(e);
-  } finally {
-    btn.textContent = 'Analyze →';
-    btn.disabled = false;
+    const data = await fetchTopicData(name);
+    S.topics[id].data = data;
+    S.topics[id].status = 'ready';
+    renderTopicList();
+    if(S.activeId===id) renderActiveTopicData();
+    toast(`✅ "${name}" is now live`);
+  } catch(err){
+    S.topics[id].status = 'error';
+    renderTopicList();
+    toast(`❌ Failed to load "${name}". Check API key.`);
+    console.error(err);
   }
 }
 
-async function getSentimentNumbers(topic) {
-  const system = `You are a sentiment analysis AI. Return ONLY valid JSON, no markdown, no preamble.`;
-  const prompt = `Estimate realistic sentiment percentages for the topic: "${topic}" in the context of Nigerian politics and social media in 2026.
-
-Return exactly this JSON structure:
-{"pos": <number>, "neg": <number>, "neu": <number>, "mentions": "<number like 142K or 2.3M>", "posChange": "<like +3.2%>", "negChange": "<like +1.5%>"}
-
-Pos + neg + neu must sum to 100. Make values realistic for Nigerian political discourse.`;
-
-  const raw = await callClaude(system, prompt, 200);
-  const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
+async function quickAdd(name){
+  document.getElementById('new-topic-input').value = name;
+  await addTopic();
 }
 
-function updateMetrics({ pos, neg, neu, mentions, posChange, negChange }) {
-  animateValue('m-total', mentions || '—');
-  animateValue('m-pos', pos + '%');
-  animateValue('m-neg', neg + '%');
-  animateValue('m-neu', neu + '%');
-  const pd = document.getElementById('m-pos-delta');
-  const nd = document.getElementById('m-neg-delta');
-  if (pd) { pd.textContent = posChange || ''; pd.className = 'metric-delta ' + (posChange?.startsWith('+') ? 'up' : 'down'); }
-  if (nd) { nd.textContent = negChange || ''; nd.className = 'metric-delta ' + (negChange?.startsWith('+') ? 'down' : 'up'); }
-  document.getElementById('dl-pos').textContent = pos + '%';
-  document.getElementById('dl-neg').textContent = neg + '%';
-  document.getElementById('dl-neu').textContent = neu + '%';
+function removeTopic(id, e){
+  e && e.stopPropagation();
+  const name = S.topics[id]?.name;
+  delete S.topics[id];
+  S.topicOrder = S.topicOrder.filter(x=>x!==id);
+  if(S.activeId===id){
+    S.activeId=null;
+    const next = S.topicOrder[0];
+    if(next) setActiveTopic(next);
+    else { setMainView('empty'); updateTopbar(); }
+  }
+  renderTopicList();
+  if(S.view==='settings') renderSettings();
+  if(S.view==='compare') renderCompare();
+  toast(`Removed "${name}"`);
 }
 
-function animateValue(id, val) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.style.opacity = '0';
-  el.style.transform = 'translateY(4px)';
-  setTimeout(() => {
-    el.textContent = val;
-    el.style.transition = 'all 0.4s ease';
-    el.style.opacity = '1';
-    el.style.transform = 'none';
-  }, 150);
-}
+function setActiveTopic(id){
+  if(!S.topics[id]) return;
+  S.activeId = id;
+  renderTopicList();
+  updateTopbar();
 
-async function loadDashInsights(topic) {
-  const badge = document.getElementById('dash-insights-badge');
-  const container = document.getElementById('dash-insights-content');
-
-  try {
-    const insights = await generateInsights(topic);
-    badge.textContent = `${insights.length} insights`;
-    badge.className = 'panel-badge done-badge';
-    container.innerHTML = '';
-    insights.forEach((ins, i) => {
-      setTimeout(() => {
-        container.innerHTML += renderInsightCard(ins);
-      }, i * 120);
-    });
-  } catch (e) {
-    badge.textContent = 'Error';
-    container.innerHTML = '<p style="color:#CC1A30;font-size:0.85rem;padding:12px">Could not load AI insights. Check API connection.</p>';
+  if(S.topics[id].status==='ready'){
+    if(S.view==='empty' || !document.getElementById('view-'+S.view)) setMainView('overview');
+    renderActiveTopicData();
+  } else if(S.topics[id].status==='loading'){
+    setMainView('overview');
+    showLoadingState();
+  } else {
+    setMainView('overview');
+    showErrorState();
   }
 }
 
-async function generateInsights(topic) {
-  const system = `You are PulseMind, a senior political sentiment analyst with 10 years experience in Nigerian politics. Return ONLY valid JSON arrays.`;
-  const prompt = `Generate 3 actionable sentiment intelligence insights for the topic: "${topic}" in Nigerian political context (2027 presidential election).
-
-Return a JSON array of exactly 3 objects:
-[
-  {"type": "positive"|"negative"|"neutral", "icon": "<emoji>", "title": "<short title>", "body": "<2-3 sentence actionable insight referencing real Nigerian political dynamics>"},
-  ...
-]
-
-Make insights specific to Nigeria: reference fuel subsidy, ethnicity dynamics, PVC registration, INEC, Lagos vs Abuja sentiment, Arewa, South-South, etc. where relevant.`;
-
-  const raw = await callClaude(system, prompt, 600);
-  const clean = raw.replace(/```json|```/g, '').trim();
-  const start = clean.indexOf('[');
-  const end = clean.lastIndexOf(']') + 1;
-  return JSON.parse(clean.slice(start, end));
-}
-
-function renderInsightCard({ type, icon, title, body }) {
-  const cls = type === 'positive' ? 'pos' : type === 'negative' ? 'neg' : 'neu';
-  return `
-    <div class="insight-card">
-      <div class="insight-icon ${cls}">${icon || (type === 'positive' ? '✅' : type === 'negative' ? '⚠️' : '💡')}</div>
-      <div class="insight-body">
-        <strong>${title}</strong>
-        <p>${body}</p>
-      </div>
-    </div>`;
-}
-
-// ── CHARTS ──────────────────────────────────
-function getChartData(topic) {
-  const seed = topic.length;
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return days.map((d, i) => ({
-    label: d,
-    pos: Math.round(45 + ((seed * (i + 1) * 7) % 30)),
-    neg: Math.round(10 + ((seed * (i + 2) * 3) % 25)),
-    neu: Math.round(5 + ((seed * (i + 1) * 5) % 15)),
-  }));
-}
-
-function drawTrendChart(data) {
-  const canvas = document.getElementById('trend-chart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.offsetWidth || 600;
-  const H = 160;
-  canvas.width = W;
-  canvas.height = H;
-  ctx.clearRect(0, 0, W, H);
-
-  const pad = { t: 12, r: 16, b: 28, l: 32 };
-  const chartW = W - pad.l - pad.r;
-  const chartH = H - pad.t - pad.b;
-  const maxVal = Math.max(...data.map(d => d.pos + d.neg + d.neu)) * 1.15;
-
-  // Grid lines
-  ctx.strokeStyle = '#F0F0F0';
-  ctx.lineWidth = 1;
-  [0.25, 0.5, 0.75, 1].forEach(r => {
-    const y = pad.t + chartH - chartH * r;
-    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + chartW, y); ctx.stroke();
-    ctx.fillStyle = '#BBBBC8';
-    ctx.font = '10px JetBrains Mono, monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(Math.round(maxVal * r), pad.l - 4, y + 3);
-  });
-
-  // Bars
-  const bw = (chartW / data.length) * 0.65;
-  const gap = (chartW / data.length) * 0.35 / 2;
-  const colors = { pos: '#00D4AA', neg: '#FF3D5A', neu: '#FFB020' };
-
-  data.forEach((d, i) => {
-    const x = pad.l + (chartW / data.length) * i + gap;
-    const barTypes = ['pos', 'neg', 'neu'];
-    const eachW = bw / 3;
-    barTypes.forEach((k, j) => {
-      const val = d[k];
-      const barH = (val / maxVal) * chartH;
-      const bx = x + eachW * j;
-      const by = pad.t + chartH - barH;
-      ctx.fillStyle = colors[k];
-      ctx.beginPath();
-      ctx.roundRect(bx, by, eachW - 1.5, barH, [2, 2, 0, 0]);
-      ctx.fill();
-    });
-
-    // X labels
-    ctx.fillStyle = '#8A8A9A';
-    ctx.font = '10px JetBrains Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(d.label, x + bw / 2, H - 6);
-  });
-}
-
-function drawDonutChart(pos, neg, neu) {
-  const canvas = document.getElementById('donut-chart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const size = 160;
-  canvas.width = size; canvas.height = size;
-  const cx = size / 2, cy = size / 2, r = 58, r2 = 38;
-
-  const segments = [
-    { val: pos, color: '#00D4AA' },
-    { val: neg, color: '#FF3D5A' },
-    { val: neu, color: '#FFB020' },
-  ];
-
-  let startAngle = -Math.PI / 2;
-  segments.forEach(seg => {
-    const angle = (seg.val / 100) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, startAngle, startAngle + angle);
-    ctx.closePath();
-    ctx.fillStyle = seg.color;
-    ctx.fill();
-    startAngle += angle;
-  });
-
-  // Donut hole
-  ctx.beginPath();
-  ctx.arc(cx, cy, r2, 0, Math.PI * 2);
-  ctx.fillStyle = 'white';
-  ctx.fill();
-
-  // Center text
-  ctx.fillStyle = '#0A0A0F';
-  ctx.font = `bold 22px 'DM Serif Display', serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(pos + '%', cx, cy - 5);
-  ctx.fillStyle = '#8A8A9A';
-  ctx.font = `11px 'Space Grotesk', sans-serif`;
-  ctx.fillText('Positive', cx, cy + 13);
-}
-
-// ── ACCOUNTS DATA ────────────────────────────
-function getDemoAccounts() {
-  return [
-    { init: 'SD', color: '#E0D4FF', tc: '#5B3FCC', name: 'Sahara Reporters', handle: '@SaharaReporters', followers: '1.8M', posts: '12.4K', sentiment: 'neg' },
-    { init: 'PN', color: '#D4F5EC', tc: '#007A62', name: 'Peter Obi Nation', handle: '@PeterObiNation', followers: '1.2M', posts: '9.1K', sentiment: 'pos' },
-    { init: 'PT', color: '#FFD4DC', tc: '#CC1A30', name: 'Premium Times NG', handle: '@PremiumTimesNG', followers: '980K', posts: '7.3K', sentiment: 'neg' },
-    { init: 'AO', color: '#D4E8FF', tc: '#0055CC', name: 'APC Outreach', handle: '@APCOutreach', followers: '720K', posts: '5.9K', sentiment: 'pos' },
-    { init: 'NI', color: '#FFE8B3', tc: '#8B5000', name: 'NigeriaInfo FM', handle: '@NigeriaInfoFM', followers: '610K', posts: '4.2K', sentiment: 'neu' },
-  ];
-}
-
-function renderAccounts(accounts, containerId) {
-  const c = document.getElementById(containerId);
-  if (!c) return;
-  c.innerHTML = accounts.map(a => `
-    <div class="account-row">
-      <div class="acct-avatar" style="background:${a.color};color:${a.tc}">${a.init}</div>
-      <div class="acct-info">
-        <div class="acct-name">${a.name}</div>
-        <div class="acct-handle">${a.handle} · ${a.followers} followers</div>
-      </div>
-      <span class="sentiment-pill sp-${a.sentiment}">${a.sentiment === 'pos' ? 'Positive' : a.sentiment === 'neg' ? 'Negative' : 'Neutral'}</span>
-      <div class="acct-count">${a.posts} posts</div>
-    </div>`).join('');
-}
-
-// ══════════════════════════════════════════
-//  ANALYZE VIEW
-// ══════════════════════════════════════════
-function setAnalyzeTopic(topic) {
-  document.getElementById('analyze-topic').value = topic;
-}
-
-async function runAnalysis() {
-  const topic = document.getElementById('analyze-topic').value.trim();
-  if (!topic) { showToast('Enter a topic to analyze.'); return; }
-
-  const btn = document.getElementById('analyze-btn');
-  const loading = document.getElementById('analyze-loading');
-  const results = document.getElementById('analyze-results');
-
-  btn.disabled = true; btn.textContent = 'Analyzing…';
-  loading.classList.remove('hidden');
-  results.classList.add('hidden');
-  results.innerHTML = '';
-
-  // Animate loading messages
-  const msgs = ['Scanning X, Facebook, Reddit, news…', 'Reading Nigerian conversations…', 'Classifying sentiment with AI…', 'Building your intelligence report…'];
-  const lines = loading.querySelectorAll('.loading-lines p');
-  let mi = 0;
-  const msgInterval = setInterval(() => {
-    if (lines[0]) lines[0].textContent = msgs[mi % msgs.length];
-    mi++;
-  }, 1200);
-
+async function refreshActiveTopic(){
+  if(!S.activeId) return;
+  const t = S.topics[S.activeId];
+  if(!t) return;
+  t.status='loading';
+  renderTopicList();
+  showLoadingState();
+  toast(`↺ Refreshing "${t.name}"…`);
   try {
-    const [nums, analysis] = await Promise.all([
-      getSentimentNumbers(topic),
-      getTopicAnalysis(topic)
-    ]);
-
-    clearInterval(msgInterval);
-    loading.classList.add('hidden');
-
-    results.innerHTML = renderAnalysisResults(topic, nums, analysis);
-    results.classList.remove('hidden');
-    showToast(`✅ Analysis ready for "${topic}"`);
-  } catch (e) {
-    clearInterval(msgInterval);
-    loading.classList.add('hidden');
-    results.innerHTML = `<div class="result-header"><p style="color:#CC1A30">Analysis failed. Please check your connection and try again.</p></div>`;
-    results.classList.remove('hidden');
-    console.error(e);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Run Analysis →';
+    t.data = await fetchTopicData(t.name);
+    t.status='ready';
+    renderTopicList();
+    renderActiveTopicData();
+    toast(`✅ "${t.name}" refreshed`);
+  } catch(err){
+    t.status='error';
+    renderTopicList();
+    showErrorState();
+    toast('❌ Refresh failed. Check API.');
   }
 }
 
-async function getTopicAnalysis(topic) {
-  const system = `You are PulseMind's chief intelligence officer — a seasoned Nigerian political analyst with 10 years experience. Return ONLY valid JSON.`;
-  const prompt = `Provide a deep sentiment intelligence analysis for the topic: "${topic}" in Nigerian political/social context (2027 election cycle).
+// ── FETCH ALL DATA FOR A TOPIC ────────
+async function fetchTopicData(name){
+  const system = `You are PulseMind's data engine — a senior Nigerian political intelligence analyst with 15 years experience. You understand Nigerian social media, politics, and public discourse deeply. Return ONLY valid JSON, no markdown, no preamble, no commentary.`;
 
-Return this exact JSON:
+  const prompt = `Generate comprehensive real-time sentiment intelligence data for the topic: "${name}" in Nigerian political/social context (2027 presidential election cycle).
+
+Return this EXACT JSON structure:
+
 {
-  "summary": "<2-3 sentence expert summary of public sentiment on this topic in Nigeria>",
-  "keyDrivers": {
-    "positive": ["<driver 1>", "<driver 2>", "<driver 3>"],
-    "negative": ["<driver 1>", "<driver 2>", "<driver 3>"]
+  "sentiment": {
+    "pos": <number 0-100>,
+    "neg": <number 0-100>,
+    "neu": <number 0-100>,
+    "mentions": "<e.g. 284K or 1.2M>",
+    "mentionsRaw": <number>,
+    "posChange": "<e.g. +5.2%>",
+    "negChange": "<e.g. +3.1%>",
+    "trendDirection": "rising|falling|stable",
+    "topPlatform": "<platform>",
+    "dominantDemographic": "<e.g. Lagos youth, Northern voters>"
   },
-  "topPlatform": "<platform name>",
-  "dominantDemographic": "<e.g. Lagos youth, Northern voters, Diaspora>",
-  "trendDirection": "rising"|"falling"|"stable",
-  "insights": [
-    {"type": "positive", "icon": "✅", "title": "<title>", "body": "<actionable insight>"},
-    {"type": "negative", "icon": "⚠️", "title": "<title>", "body": "<actionable insight>"},
-    {"type": "opportunity", "icon": "💡", "title": "<title>", "body": "<opportunity insight>"}
+  "summary": "<2-3 sentence expert summary of public sentiment, very specific to Nigeria>",
+  "keyDrivers": {
+    "positive": ["<driver>","<driver>","<driver>"],
+    "negative": ["<driver>","<driver>","<driver>"]
+  },
+  "weekTrend": [
+    {"day":"Mon","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Tue","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Wed","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Thu","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Fri","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Sat","pos":<n>,"neg":<n>,"neu":<n>},
+    {"day":"Sun","pos":<n>,"neg":<n>,"neu":<n>}
+  ],
+  "sources": [
+    {
+      "name": "X (Twitter)",
+      "icon": "🐦",
+      "color": "#1DA1F2",
+      "bgColor": "#EFF8FF",
+      "type": "Social Media",
+      "mentions": "<number like 142K>",
+      "posShare": <0-100>,
+      "negShare": <0-100>,
+      "neuShare": <0-100>,
+      "topPost": "<realistic Nigerian tweet about this topic, max 140 chars>",
+      "activeAccounts": "<number like 8.4K>",
+      "reach": "<number like 12.4M>"
+    },
+    {
+      "name": "Facebook",
+      "icon": "📘",
+      "color": "#1877F2",
+      "bgColor": "#EEF3FF",
+      "type": "Social Media",
+      "mentions": "<number>",
+      "posShare": <0-100>,
+      "negShare": <0-100>,
+      "neuShare": <0-100>,
+      "topPost": "<realistic Nigerian Facebook post about this topic>",
+      "activeAccounts": "<number>",
+      "reach": "<number>"
+    },
+    {
+      "name": "Reddit",
+      "icon": "🔴",
+      "color": "#FF4500",
+      "bgColor": "#FFF2EE",
+      "type": "Forum",
+      "mentions": "<number>",
+      "posShare": <0-100>,
+      "negShare": <0-100>,
+      "neuShare": <0-100>,
+      "topPost": "<realistic Nigerian Reddit post about this topic>",
+      "activeAccounts": "<number>",
+      "reach": "<number>"
+    },
+    {
+      "name": "Nigerian News Sites",
+      "icon": "📰",
+      "color": "#333333",
+      "bgColor": "#F5F5F5",
+      "type": "News Media",
+      "mentions": "<number>",
+      "posShare": <0-100>,
+      "negShare": <0-100>,
+      "neuShare": <0-100>,
+      "topPost": "<realistic Nigerian news headline about this topic>",
+      "activeAccounts": "<number like 47>",
+      "reach": "<number>"
+    },
+    {
+      "name": "YouTube",
+      "icon": "▶️",
+      "color": "#FF0000",
+      "bgColor": "#FFF0F0",
+      "type": "Video Platform",
+      "mentions": "<number>",
+      "posShare": <0-100>,
+      "negShare": <0-100>,
+      "neuShare": <0-100>,
+      "topPost": "<realistic YouTube comment/title about this topic>",
+      "activeAccounts": "<number>",
+      "reach": "<number>"
+    }
+  ],
+  "accounts": [
+    {
+      "rank": 1,
+      "name": "<real or realistic Nigerian account name>",
+      "handle": "@<handle>",
+      "platform": "Twitter|Facebook|YouTube|Reddit",
+      "followers": "<number like 1.8M>",
+      "posts": <number>,
+      "views": "<number like 4.2M>",
+      "likes": "<number like 180K>",
+      "comments": "<number like 22K>",
+      "sentiment": "positive|negative|neutral",
+      "initials": "<2 chars>",
+      "avatarBg": "<hex color>",
+      "avatarTc": "<hex color>"
+    }
+  ],
+  "locations": [
+    {"name":"Lagos","zone":"South West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Abuja (FCT)","zone":"North Central","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Kano","zone":"North West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Rivers (Port Harcourt)","zone":"South South","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Oyo (Ibadan)","zone":"South West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Anambra","zone":"South East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Kaduna","zone":"North West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Delta","zone":"South South","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Enugu","zone":"South East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
+    {"name":"Borno","zone":"North East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>}
   ]
 }
 
-Be specific to Nigeria: reference relevant states, demographics, political dynamics, current issues like petrol prices, ASUU strikes, security, naira weakness, etc.`;
+accounts array must have exactly 20 items. Make all data realistic for Nigerian political discourse in 2026. Pos+neg+neu must equal 100 for sentiment and each source/location.`;
 
-  const raw = await callClaude(system, prompt, 1000);
-  const clean = raw.replace(/```json|```/g, '').trim();
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}') + 1;
-  return JSON.parse(clean.slice(start, end));
+  const raw = await callClaude(system, prompt, 3000);
+  return safeJSON(raw);
 }
 
-function renderAnalysisResults(topic, nums, analysis) {
-  const trendIcon = analysis.trendDirection === 'rising' ? '↗' : analysis.trendDirection === 'falling' ? '↘' : '→';
-  const insightsHtml = (analysis.insights || []).map(ins => renderInsightCard(ins)).join('');
+// ── RENDER TOPIC LIST ─────────────────
+function renderTopicList(){
+  const container = document.getElementById('topic-list');
+  if(!container) return;
 
-  return `
-    <div class="result-header">
-      <div class="result-topic">Analysis · ${topic}</div>
-      <p class="result-summary">${analysis.summary || ''}</p>
-      <div style="display:flex;gap:16px;margin-top:14px;flex-wrap:wrap;">
-        <span style="font-size:0.78rem;background:#F0F0F8;padding:4px 12px;border-radius:100px;color:#555">
-          📱 Top: ${analysis.topPlatform || 'X / Twitter'}
-        </span>
-        <span style="font-size:0.78rem;background:#F0F0F8;padding:4px 12px;border-radius:100px;color:#555">
-          👥 ${analysis.dominantDemographic || 'Urban voters'}
-        </span>
-        <span style="font-size:0.78rem;background:#F0F0F8;padding:4px 12px;border-radius:100px;color:#555">
-          ${trendIcon} ${analysis.trendDirection || 'Stable'} trend
-        </span>
-      </div>
-    </div>
+  if(!S.topicOrder.length){
+    container.innerHTML = '<div style="padding:8px 14px;font-size:.78rem;color:rgba(255,255,255,.25);font-style:italic">No topics yet</div>';
+    return;
+  }
 
-    <div class="result-metrics">
-      <div class="result-metric">
-        <div class="rm-val pos">${nums.pos}%</div>
-        <div class="rm-label">Positive</div>
-      </div>
-      <div class="result-metric">
-        <div class="rm-val neg">${nums.neg}%</div>
-        <div class="rm-label">Negative</div>
-      </div>
-      <div class="result-metric">
-        <div class="rm-val neu">${nums.neu}%</div>
-        <div class="rm-label">Neutral</div>
-      </div>
-    </div>
+  container.innerHTML = S.topicOrder.map(id=>{
+    const t = S.topics[id];
+    if(!t) return '';
+    const isActive = id===S.activeId;
+    const statusCls = t.status==='loading'?'loading':t.status==='error'?'error':'ready';
+    const meta = t.status==='loading'?'Analyzing…':t.status==='error'?'Error — retry':
+      t.data?`${t.data.sentiment?.mentions||'—'} mentions`:'Ready';
 
-    ${analysis.keyDrivers ? `
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-header"><span class="panel-title">Key Sentiment Drivers</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-        <div>
-          <div style="font-size:0.72rem;font-weight:700;color:#007A62;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Positive Drivers</div>
-          ${(analysis.keyDrivers.positive || []).map(d => `
-            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.82rem;color:#333;margin-bottom:6px">
-              <span style="color:#00D4AA;font-weight:700;flex-shrink:0">+</span>${d}
-            </div>`).join('')}
-        </div>
-        <div>
-          <div style="font-size:0.72rem;font-weight:700;color:#CC1A30;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Negative Drivers</div>
-          ${(analysis.keyDrivers.negative || []).map(d => `
-            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.82rem;color:#333;margin-bottom:6px">
-              <span style="color:#FF3D5A;font-weight:700;flex-shrink:0">−</span>${d}
-            </div>`).join('')}
-        </div>
+    return `<div class="topic-item ${isActive?'active':''}" onclick="setActiveTopic('${id}')">
+      <div class="topic-dot" style="background:${t.color}"></div>
+      <div class="topic-info">
+        <div class="topic-name">${t.name}</div>
+        <div class="topic-meta">${meta}</div>
       </div>
-    </div>` : ''}
-
-    <div class="result-insights">
-      <h3>🧠 AI Action Insights</h3>
-      <div class="insights-content">${insightsHtml}</div>
-    </div>
-
-    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn-primary sm" onclick="setView('dashboard');document.getElementById('dash-topic-input').value='${topic.replace(/'/g, "\\'")}';runDashboardAnalysis()">
-        Add to Dashboard →
-      </button>
-      <button class="btn-outline sm" onclick="generateReportForTopic('${topic.replace(/'/g, "\\'")}')">
-        Export Report
-      </button>
+      <div class="topic-status ${statusCls}"></div>
+      <button class="topic-remove" onclick="removeTopic('${id}',event)" title="Remove">✕</button>
     </div>`;
+  }).join('');
 }
 
-// ══════════════════════════════════════════
-//  LIVE FEED
-// ══════════════════════════════════════════
-const FEED_TEMPLATES = {
-  positive: [
-    { text: "I'm impressed by how {topic} is gaining traction across the North and South. This could be the change Nigeria needs. #Nigeria2027", platform: 'X (Twitter)' },
-    { text: "Finally a candidate who understands our suffering. The youth of Lagos are solidly behind this movement! #PVC {topic}", platform: 'Facebook' },
-    { text: "Watching the rally in Abuja — the energy is incredible. {topic} has something real going. 🇳🇬 #Naija2027", platform: 'X (Twitter)' },
-    { text: "My grandmother in Enugu is happy for the first time in years about politics. {topic} gives her hope.", platform: 'Facebook' },
-    { text: "The economic plan presented by {topic} actually makes sense for ordinary Nigerians. Let's hold them to it.", platform: 'Reddit r/Nigeria' },
-  ],
-  negative: [
-    { text: "Empty promises again. {topic} has been saying the same things since 2023. Nigeria deserves better. #Nigeria2027", platform: 'X (Twitter)' },
-    { text: "How can we trust {topic} when fuel still costs ₦1,200/litre and unemployment is at 33%? Wake up Nigerians.", platform: 'Facebook' },
-    { text: "The security situation in the North-East is worse than ever and {topic} hasn't said a word about it. Speechless.", platform: 'X (Twitter)' },
-    { text: "Another politician from the same recycled class. {topic} is just APC/PDP in disguise. I'm not voting.", platform: 'Reddit r/Naijapolitics' },
-    { text: "What happened to the promises from the last election? Why should {topic} be any different? #JapaBetter", platform: 'X (Twitter)' },
-  ],
-  neutral: [
-    { text: "Watching the debate on {topic}. Still haven't made up my mind. Need to see more specifics on the economy.", platform: 'X (Twitter)' },
-    { text: "Coverage of {topic} in the papers today. Interesting perspectives from both sides. 🤔 #Nigeria2027", platform: 'Facebook' },
-    { text: "Anyone else doing more research on {topic} before deciding? Would love to see a real policy breakdown.", platform: 'Reddit r/Nigeria' },
-  ],
-};
+// ── UPDATE TOPBAR ─────────────────────
+function updateTopbar(){
+  const t = S.activeId ? S.topics[S.activeId] : null;
+  document.getElementById('active-topic-name').textContent = t ? t.name : 'Select a topic';
 
-const NIGERIAN_NAMES = [
-  { name: 'Chukwuemeka Okafor', handle: '@chuks_ng', init: 'CO', bg: '#E0D4FF', tc: '#5B3FCC' },
-  { name: 'Fatima Al-Hassan', handle: '@fatima_kano', init: 'FA', bg: '#D4F5EC', tc: '#007A62' },
-  { name: 'Babatunde Adeyemi', handle: '@babs_lag', init: 'BA', bg: '#FFD4DC', tc: '#CC1A30' },
-  { name: 'Ngozi Eze', handle: '@ngozi_abj', init: 'NE', bg: '#D4E8FF', tc: '#0055CC' },
-  { name: 'Ibrahim Musa', handle: '@ibro_kd', init: 'IM', bg: '#FFE8B3', tc: '#8B5000' },
-  { name: 'Adaeze Okonkwo', handle: '@ada_enugu', init: 'AO', bg: '#F4D4FF', tc: '#6B00AA' },
-  { name: 'Yusuf Garba', handle: '@yusuf_sk', init: 'YG', bg: '#D4FFE8', tc: '#007A40' },
-  { name: 'Tolu Balogun', handle: '@tolu_ibadan', init: 'TB', bg: '#FFD4F0', tc: '#AA0066' },
-  { name: 'Emeka Nwosu', handle: '@emeka_ph', init: 'EN', bg: '#D4F0FF', tc: '#0066AA' },
-  { name: 'Hauwa Shehu', handle: '@hauwa_maid', init: 'HS', bg: '#FFF4D4', tc: '#AA6600' },
-];
-
-function generateFeedItem(topic, filterType) {
-  const types = ['positive', 'negative', 'neutral'];
-  const weights = [0.6, 0.28, 0.12];
-  let type;
-
-  if (filterType && filterType !== 'all') {
-    type = filterType;
+  const statsEl = document.getElementById('topbar-stats');
+  if(t?.data?.sentiment){
+    const s = t.data.sentiment;
+    statsEl.innerHTML = `
+      <div class="ts-item pos"><span class="ts-val">${s.pos}%</span><span class="ts-lbl">Positive</span></div>
+      <div class="ts-item neg"><span class="ts-val">${s.neg}%</span><span class="ts-lbl">Negative</span></div>
+      <div class="ts-item"><span class="ts-val" style="color:var(--mid)">${s.mentions}</span><span class="ts-lbl">Mentions</span></div>`;
   } else {
-    const r = Math.random();
-    type = r < weights[0] ? 'positive' : r < weights[0] + weights[1] ? 'negative' : 'neutral';
+    statsEl.innerHTML = '';
   }
-
-  const templates = FEED_TEMPLATES[type];
-  const tpl = templates[Math.floor(Math.random() * templates.length)];
-  const person = NIGERIAN_NAMES[Math.floor(Math.random() * NIGERIAN_NAMES.length)];
-  const shortTopic = topic.split(' ').slice(0, 3).join(' ');
-  const text = tpl.text.replace(/{topic}/g, shortTopic);
-  const mins = Math.floor(Math.random() * 8) + 1;
-
-  return { type, text, platform: tpl.platform, person, time: `${mins}m ago` };
 }
 
-function renderFeedItem(item) {
-  const emoji = item.type === 'positive' ? '😊' : item.type === 'negative' ? '😡' : '😐';
-  return `
-    <div class="feed-item ${item.type}">
-      <div class="feed-avatar" style="background:${item.person.bg};color:${item.person.tc}">${item.person.init}</div>
-      <div class="feed-content">
-        <div class="feed-meta">
-          <span class="feed-name">${item.person.name}</span>
-          <span class="feed-handle">${item.person.handle}</span>
-          <span class="sentiment-pill sp-${item.type === 'positive' ? 'pos' : item.type === 'negative' ? 'neg' : 'neu'}">${emoji} ${item.type}</span>
-          <span class="feed-time">${item.time}</span>
-        </div>
-        <div class="feed-text">${item.text}</div>
-        <div class="feed-platform">📍 ${item.platform}</div>
+// ── RENDER ACTIVE TOPIC DATA ──────────
+function renderActiveTopicData(){
+  const t = S.topics[S.activeId];
+  if(!t?.data) return;
+
+  updateTopbar();
+
+  const v = S.view;
+  if(v==='overview'||v==='empty') renderOverview();
+  if(v==='feed') startFeed();
+  if(v==='sources') renderSources();
+  if(v==='accounts') renderAccounts();
+  if(v==='locations') renderLocations();
+  if(v==='insights') loadInsights();
+  if(v==='compare') renderCompare();
+
+  if(S.view==='empty') setMainView('overview');
+}
+
+function showLoadingState(){
+  const fields = ['ov-mentions','ov-pos','ov-neg','ov-neu','ov-summary'];
+  fields.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent='Loading…'; });
+  const badge=document.getElementById('summary-badge');
+  if(badge){ badge.textContent='Analyzing…'; badge.className='badge loading-badge'; }
+  document.getElementById('ov-drivers').innerHTML='<div class="skeleton-block"></div><div class="skeleton-block"></div>';
+}
+
+function showErrorState(){
+  document.getElementById('ov-summary').textContent = '❌ Could not load analysis. Check your API key in Vercel settings, then click Refresh.';
+  const badge=document.getElementById('summary-badge');
+  if(badge){ badge.textContent='Error'; badge.className='badge error-badge'; }
+}
+
+// ── OVERVIEW ─────────────────────────
+function renderOverview(){
+  const t = S.topics[S.activeId];
+  if(!t?.data) return;
+  const d = t.data;
+  const s = d.sentiment;
+
+  document.getElementById('ov-title').textContent = t.name;
+  document.getElementById('ov-sub').textContent = `Real-time sentiment · ${s.mentions} mentions · ${s.trendDirection} trend`;
+  document.getElementById('chart-label').textContent = t.name;
+
+  // Metrics
+  setMetric('ov-mentions', s.mentions, '');
+  setMetric('ov-pos', s.pos+'%', s.posChange||'', true);
+  setMetric('ov-neg', s.neg+'%', s.negChange||'', false);
+  setMetric('ov-neu', s.neu+'%', 'Stable', null);
+
+  // Donut
+  document.getElementById('dl-pos').textContent = s.pos+'%';
+  document.getElementById('dl-neg').textContent = s.neg+'%';
+  document.getElementById('dl-neu').textContent = s.neu+'%';
+  drawDonut(s.pos, s.neg, s.neu);
+
+  // Trend chart
+  if(d.weekTrend) drawTrend(d.weekTrend);
+
+  // Summary
+  document.getElementById('ov-summary').textContent = d.summary||'';
+  const badge=document.getElementById('summary-badge');
+  if(badge){ badge.textContent='AI Analysis'; badge.className='badge done-badge'; }
+
+  const meta=document.getElementById('ov-meta');
+  if(meta){
+    meta.innerHTML = [
+      s.topPlatform?`<span class="summary-tag">📱 ${s.topPlatform}</span>`:'',
+      s.dominantDemographic?`<span class="summary-tag">👥 ${s.dominantDemographic}</span>`:'',
+      `<span class="summary-tag">${s.trendDirection==='rising'?'↗':s.trendDirection==='falling'?'↘':'→'} ${s.trendDirection}</span>`,
+    ].join('');
+  }
+
+  // Drivers
+  const driversEl = document.getElementById('ov-drivers');
+  if(driversEl && d.keyDrivers){
+    driversEl.innerHTML = `
+      <div class="driver-col pos">
+        <h4>Positive Drivers</h4>
+        ${(d.keyDrivers.positive||[]).map(dr=>`<div class="driver-item">${dr}</div>`).join('')}
       </div>
-    </div>`;
-}
-
-function initFeed() {
-  if (state.feedInterval) return;
-  const container = document.getElementById('feed-container');
-  const topic = state.currentTopic;
-
-  // Initial batch
-  container.innerHTML = '';
-  for (let i = 0; i < 8; i++) {
-    const item = generateFeedItem(topic, state.feedFilter !== 'all' ? state.feedFilter : null);
-    container.innerHTML += renderFeedItem(item);
+      <div class="driver-col neg">
+        <h4>Negative Drivers</h4>
+        ${(d.keyDrivers.negative||[]).map(dr=>`<div class="driver-item">${dr}</div>`).join('')}
+      </div>`;
   }
-
-  // Live updates
-  state.feedInterval = setInterval(() => {
-    if (state.currentView !== 'feed') return;
-    const item = generateFeedItem(topic, state.feedFilter !== 'all' ? state.feedFilter : null);
-    const newEl = document.createElement('div');
-    newEl.innerHTML = renderFeedItem(item);
-    container.insertBefore(newEl.firstElementChild, container.firstChild);
-    // Cap at 30 items
-    while (container.children.length > 30) container.removeChild(container.lastChild);
-  }, 3500);
 }
 
-function setFeedFilter(el, filter) {
-  document.querySelectorAll('.feed-filter').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  state.feedFilter = filter;
-  if (state.feedInterval) { clearInterval(state.feedInterval); state.feedInterval = null; }
-  initFeed();
+function setMetric(id, val, delta, isUp){
+  const el=document.getElementById(id);
+  if(el){ el.style.opacity='0'; setTimeout(()=>{ el.textContent=val; el.style.transition='all .4s'; el.style.opacity='1'; },120); }
+  const did = id+'-delta';
+  const del=document.getElementById(did);
+  if(del && delta){
+    del.textContent=delta;
+    del.className='mc-delta'+(isUp===true?' up':isUp===false?' down':'');
+  }
 }
 
-// ══════════════════════════════════════════
-//  ACCOUNTS FULL
-// ══════════════════════════════════════════
-function initAccountsFull() {
-  const container = document.getElementById('accounts-full-list');
-  const allAccounts = [
-    { init: 'SR', bg: '#FFD4DC', tc: '#CC1A30', name: 'Sahara Reporters', handle: '@SaharaReporters', followers: '1.8M', posts: '12.4K', reach: '8.4M', sentiment: 'neg' },
-    { init: 'PN', bg: '#D4F5EC', tc: '#007A62', name: 'Peter Obi Nation', handle: '@PeterObiNation', followers: '1.2M', posts: '9.1K', reach: '6.2M', sentiment: 'pos' },
-    { init: 'PT', bg: '#E0D4FF', tc: '#5B3FCC', name: 'Premium Times NG', handle: '@PremiumTimesNG', followers: '980K', posts: '7.3K', reach: '4.8M', sentiment: 'neg' },
-    { init: 'AO', bg: '#D4E8FF', tc: '#0055CC', name: 'APC Digital', handle: '@APCDigital', followers: '720K', posts: '5.9K', reach: '3.6M', sentiment: 'pos' },
-    { init: 'NI', bg: '#FFE8B3', tc: '#8B5000', name: 'NigeriaInfo FM', handle: '@NigeriaInfoFM', followers: '610K', posts: '4.2K', reach: '2.9M', sentiment: 'neu' },
-    { init: 'CB', bg: '#F4D4FF', tc: '#6B00AA', name: 'Channels TV', handle: '@channelstv', followers: '580K', posts: '3.8K', reach: '2.5M', sentiment: 'neu' },
-    { init: 'VC', bg: '#D4FFE8', tc: '#007A40', name: 'Vanguard NG', handle: '@vanguardngrnews', followers: '490K', posts: '3.1K', reach: '1.9M', sentiment: 'neg' },
-    { init: 'PD', bg: '#FFD4F0', tc: '#AA0066', name: 'PDP Nationwide', handle: '@OfficialPDPNig', followers: '420K', posts: '2.7K', reach: '1.7M', sentiment: 'pos' },
-    { init: 'RJ', bg: '#D4F0FF', tc: '#0066AA', name: 'RenewedHopeNG', handle: '@RenewedHopeNG', followers: '380K', posts: '2.2K', reach: '1.4M', sentiment: 'pos' },
-    { init: 'OM', bg: '#FFF4D4', tc: '#AA6600', name: 'Obizone Media', handle: '@Obizoneng', followers: '310K', posts: '1.9K', reach: '1.1M', sentiment: 'pos' },
-  ];
+// ── CHARTS ────────────────────────────
+function drawTrend(data){
+  const canvas=document.getElementById('trend-chart');
+  if(!canvas) return;
+  const W=canvas.offsetWidth||600, H=150;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
 
-  container.innerHTML = `
-    <div class="accounts-table-header">
-      <div>Account</div>
-      <div>Followers</div>
-      <div>Posts</div>
-      <div>Est. Reach</div>
-      <div>Sentiment</div>
-    </div>
-    ${allAccounts.map(a => `
-      <div class="accounts-table-row">
-        <div class="at-name">
-          <div class="acct-avatar" style="background:${a.bg};color:${a.tc}">${a.init}</div>
-          <div>
-            <div class="acct-name">${a.name}</div>
-            <div class="acct-handle">${a.handle}</div>
-          </div>
-        </div>
-        <div class="at-followers">${a.followers}</div>
-        <div class="at-posts">${a.posts}</div>
-        <div class="at-reach">${a.reach}</div>
-        <div><span class="sentiment-pill sp-${a.sentiment === 'pos' ? 'pos' : a.sentiment === 'neg' ? 'neg' : 'neu'}">${a.sentiment === 'pos' ? 'Positive' : a.sentiment === 'neg' ? 'Negative' : 'Neutral'}</span></div>
-      </div>`).join('')}`;
-}
+  const pad={t:10,r:12,b:24,l:28};
+  const cW=W-pad.l-pad.r, cH=H-pad.t-pad.b;
+  const maxVal=Math.max(...data.map(d=>d.pos+d.neg+d.neu))*1.2||100;
 
-// ══════════════════════════════════════════
-//  INSIGHTS FULL
-// ══════════════════════════════════════════
-async function initInsightsFull() {
-  const container = document.getElementById('insights-full-content');
-  container.innerHTML = `<div class="insights-loading-state"><div class="loading-pulse"></div><p>Generating strategic insights for ${state.currentTopic}…</p></div>`;
+  // Grid
+  [.25,.5,.75,1].forEach(r=>{
+    const y=pad.t+cH-cH*r;
+    ctx.strokeStyle='#EEEEF5'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cW,y); ctx.stroke();
+    ctx.fillStyle='#BBBBC8'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='right';
+    ctx.fillText(Math.round(maxVal*r),pad.l-3,y+3);
+  });
 
-  try {
-    const system = `You are PulseMind's chief strategy officer — 10 years of Nigerian political consulting. Return ONLY valid JSON.`;
-    const prompt = `Generate 6 deep strategic insights for "${state.currentTopic}" in Nigerian 2027 election context.
+  const bw=(cW/data.length)*0.68;
+  const gap=(cW/data.length)*0.32/2;
+  const ew=bw/3;
 
-Return JSON array of 6 objects:
-[{"type": "positive"|"negative"|"opportunity", "icon": "<emoji>", "title": "<title>", "body": "<2-3 sentences with specific Nigerian political context>", "actions": ["<action 1>", "<action 2>", "<action 3>"]}]
-
-Cover: voter demographics, regional sentiment, social media strategy, opposition risks, opportunity windows, crisis prevention.`;
-
-    const raw = await callClaude(system, prompt, 1200);
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const start = clean.indexOf('['), end = clean.lastIndexOf(']') + 1;
-    const insights = JSON.parse(clean.slice(start, end));
-
-    container.innerHTML = '';
-    insights.forEach((ins, i) => {
-      const typeCls = ins.type === 'positive' ? 'pos' : ins.type === 'negative' ? 'neg' : 'opp';
-      const typeLabel = ins.type === 'positive' ? 'Positive Signal' : ins.type === 'negative' ? 'Negative Risk' : 'Opportunity';
-      setTimeout(() => {
-        const card = document.createElement('div');
-        card.className = 'insight-full-card';
-        card.innerHTML = `
-          <div class="ifc-type ${typeCls}">// ${typeLabel}</div>
-          <div class="ifc-title">${ins.icon} ${ins.title}</div>
-          <div class="ifc-body">${ins.body}</div>
-          ${ins.actions ? `<div class="ifc-actions">${ins.actions.map(a => `<span class="action-tag">→ ${a}</span>`).join('')}</div>` : ''}`;
-        container.appendChild(card);
-      }, i * 150);
+  data.forEach((d,i)=>{
+    const x=pad.l+(cW/data.length)*i+gap;
+    [['pos','#00D4AA'],['neg','#FF3D5A'],['neu','#FFB020']].forEach(([k,c],j)=>{
+      const bh=(d[k]/maxVal)*cH;
+      ctx.fillStyle=c;
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x+ew*j,pad.t+cH-bh,ew-1.5,bh,[2,2,0,0]);
+      else ctx.rect(x+ew*j,pad.t+cH-bh,ew-1.5,bh);
+      ctx.fill();
     });
-  } catch (e) {
-    container.innerHTML = `<div class="insight-full-card"><p style="color:#CC1A30">Could not load insights. Check your API connection.</p></div>`;
-    console.error(e);
-  }
+    ctx.fillStyle='#BBBBC8'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='center';
+    ctx.fillText(d.day,x+bw/2,H-6);
+  });
 }
 
-async function refreshInsights() {
-  state.insightsLoaded = false;
-  await initInsightsFull();
+function drawDonut(pos,neg,neu){
+  const canvas=document.getElementById('donut-chart');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const sz=150, cx=sz/2, cy=sz/2, r=56, ri=36;
+  canvas.width=sz; canvas.height=sz;
+  ctx.clearRect(0,0,sz,sz);
+
+  let start=-Math.PI/2;
+  [[pos,'#00D4AA'],[neg,'#FF3D5A'],[neu,'#FFB020']].forEach(([v,c])=>{
+    const angle=(v/100)*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,start,start+angle); ctx.closePath();
+    ctx.fillStyle=c; ctx.fill();
+    start+=angle;
+  });
+
+  ctx.beginPath(); ctx.arc(cx,cy,ri,0,Math.PI*2);
+  ctx.fillStyle='white'; ctx.fill();
+
+  ctx.fillStyle='#08080D'; ctx.font=`bold 18px 'DM Serif Display',serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(pos+'%',cx,cy-5);
+  ctx.fillStyle='#8888A0'; ctx.font=`10px 'Space Grotesk',sans-serif`;
+  ctx.fillText('Positive',cx,cy+10);
 }
 
-// ══════════════════════════════════════════
-//  CANDIDATES
-// ══════════════════════════════════════════
-const CANDIDATES_DATA = [
-  { init: 'BT', bg: '#D4E8FF', tc: '#0055CC', name: 'Bola Tinubu', party: 'APC (Incumbent)', pos: 44, neg: 40, neu: 16, mentions: '1.2M', color: '#0055CC' },
-  { init: 'PO', bg: '#E0D4FF', tc: '#5B3FCC', name: 'Peter Obi', party: 'NDC / Labour', pos: 68, neg: 18, neu: 14, mentions: '980K', color: '#5B3FCC' },
-  { init: 'AA', bg: '#D4F5EC', tc: '#007A62', name: 'Atiku Abubakar', party: 'PDP', pos: 41, neg: 38, neu: 21, mentions: '740K', color: '#007A62' },
-  { init: 'SM', bg: '#FFE8B3', tc: '#8B5000', name: 'Seyi Makinde', party: 'PDP', pos: 62, neg: 20, neu: 18, mentions: '520K', color: '#8B5000' },
-  { init: 'NR', bg: '#FFD4DC', tc: '#CC1A30', name: 'Nasir el-Rufai', party: 'ADC', pos: 38, neg: 44, neu: 18, mentions: '480K', color: '#CC1A30' },
-  { init: 'RA', bg: '#F4D4FF', tc: '#6B00AA', name: 'Rotimi Amaechi', party: 'PDP', pos: 35, neg: 42, neu: 23, mentions: '310K', color: '#6B00AA' },
-];
+// ── DATA SOURCES ──────────────────────
+function renderSources(){
+  const t=S.topics[S.activeId];
+  if(!t?.data?.sources) return;
 
-function initCandidates() {
-  const grid = document.getElementById('candidates-grid');
-  grid.innerHTML = CANDIDATES_DATA.map(c => `
-    <div class="candidate-card">
-      <div class="cand-header">
-        <div class="cand-avatar" style="background:${c.bg};color:${c.tc}">${c.init}</div>
+  document.getElementById('sources-sub').textContent=`Tracking "${t.name}" across ${t.data.sources.length} platforms`;
+
+  document.getElementById('sources-content').innerHTML = t.data.sources.map(src=>`
+    <div class="source-card">
+      <div class="sc-header">
+        <div class="sc-icon" style="background:${src.bgColor}">${src.icon}</div>
         <div>
-          <div class="cand-name">${c.name}</div>
-          <div class="cand-party">${c.party}</div>
-        </div>
-        <div style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:#8A8A9A">${c.mentions} mentions</div>
-      </div>
-      <div class="cand-bars">
-        <div class="cand-bar-row">
-          <span class="cand-bar-label">Positive</span>
-          <div class="cand-bar-track"><div class="cand-bar-fill" style="width:${c.pos}%;background:#00D4AA"></div></div>
-          <span class="cand-bar-val">${c.pos}%</span>
-        </div>
-        <div class="cand-bar-row">
-          <span class="cand-bar-label">Negative</span>
-          <div class="cand-bar-track"><div class="cand-bar-fill" style="width:${c.neg}%;background:#FF3D5A"></div></div>
-          <span class="cand-bar-val">${c.neg}%</span>
-        </div>
-        <div class="cand-bar-row">
-          <span class="cand-bar-label">Neutral</span>
-          <div class="cand-bar-track"><div class="cand-bar-fill" style="width:${c.neu}%;background:#FFB020"></div></div>
-          <span class="cand-bar-val">${c.neu}%</span>
+          <div class="sc-name">${src.name}</div>
+          <div class="sc-type">${src.type}</div>
         </div>
       </div>
-      <div class="cand-btn">
-        <button class="btn-outline sm" style="width:100%" onclick="setView('analyze');setAnalyzeTopic('${c.name} 2027 Nigeria')">
-          Deep Analyze →
-        </button>
+      <div class="sc-stats">
+        <div class="sc-stat"><div class="sc-stat-val">${src.mentions}</div><div class="sc-stat-lbl">Mentions</div></div>
+        <div class="sc-stat"><div class="sc-stat-val">${src.reach}</div><div class="sc-stat-lbl">Est. Reach</div></div>
+        <div class="sc-stat"><div class="sc-stat-val">${src.activeAccounts}</div><div class="sc-stat-lbl">Accounts</div></div>
+        <div class="sc-stat"><div class="sc-stat-val" style="color:var(--pos-t)">${src.posShare}%</div><div class="sc-stat-lbl">Positive</div></div>
+      </div>
+      <div class="sc-sentiment-bar">
+        <div class="sc-bar-seg" style="width:${src.posShare}%;background:#00D4AA"></div>
+        <div class="sc-bar-seg" style="width:${src.negShare}%;background:#FF3D5A"></div>
+        <div class="sc-bar-seg" style="width:${src.neuShare}%;background:#FFB020"></div>
+      </div>
+      <div class="sc-sentiment-labels">
+        <span>+${src.posShare}% positive</span>
+        <span>${src.negShare}% negative</span>
+        <span>${src.neuShare}% neutral</span>
+      </div>
+      <div class="sc-top-post" style="margin-top:12px">
+        <div class="sc-top-post-label">Top Post</div>
+        ${src.topPost||'—'}
       </div>
     </div>`).join('');
 }
 
-// ══════════════════════════════════════════
-//  REPORTS
-// ══════════════════════════════════════════
-async function generateReport(type) {
-  const output = document.getElementById('report-output');
-  output.classList.remove('hidden');
-  output.textContent = '⏳ Generating your report with AI…';
+// ── TOP ACCOUNTS ─────────────────────
+function renderAccounts(){
+  const t=S.topics[S.activeId];
+  if(!t?.data?.accounts) return;
+  document.getElementById('accounts-sub').textContent=`Top 20 accounts discussing "${t.name}"`;
 
-  const topic = state.currentTopic;
-  const reportTypes = {
-    weekly: `Generate a professional Weekly Sentiment Briefing report for "${topic}" in Nigerian political context. Include: Executive Summary, 7-day trend analysis, platform breakdown, top accounts, key talking points. Format as a clear text report.`,
-    strategy: `Generate a Campaign Strategy Report based on current sentiment for "${topic}" in Nigeria 2027 election. Include: Current position assessment, 5 strategic recommendations, messaging framework, risk mitigation. Format as actionable text report.`,
-    influencer: `Generate an Influencer Intelligence Report for "${topic}" in Nigerian social media. Include: Top 10 accounts by reach, sentiment direction, engagement rates, recommended outreach strategy. Format as text report.`,
-    crisis: `Generate a Crisis Alert Report for "${topic}" in Nigerian political context. Include: Current threat level, negative sentiment triggers, affected demographics, immediate response recommendations. Format as text report.`,
-  };
+  document.getElementById('accounts-table-body').innerHTML = t.data.accounts.map((a,i)=>`
+    <div class="account-row">
+      <span class="ar-rank">${i+1}</span>
+      <div class="ar-info">
+        <div class="ar-avatar" style="background:${a.avatarBg||'#E0D4FF'};color:${a.avatarTc||'#5B3FCC'}">${a.initials||a.name?.slice(0,2)||'??'}</div>
+        <div>
+          <div class="ar-name">${a.name}</div>
+          <div class="ar-handle">${a.handle}</div>
+        </div>
+      </div>
+      <span class="ar-platform">${a.platform}</span>
+      <span class="ar-num">${typeof a.posts==='number'?a.posts.toLocaleString():a.posts}</span>
+      <span class="ar-num">${a.views}</span>
+      <span class="ar-num">${a.likes}</span>
+      <span class="ar-num">${a.comments}</span>
+      <span class="sp-pill sp-${a.sentiment==='positive'?'pos':a.sentiment==='negative'?'neg':'neu'}">${a.sentiment}</span>
+    </div>`).join('');
+}
+
+// ── LOCATIONS ────────────────────────
+function renderLocations(){
+  const t=S.topics[S.activeId];
+  if(!t?.data?.locations) return;
+  document.getElementById('locations-sub').textContent=`Where "${t.name}" is being discussed`;
+
+  const locs=t.data.locations;
+  const maxM=Math.max(...locs.map(l=>l.mentions))||1;
+
+  document.getElementById('locations-list').innerHTML = locs.map((l,i)=>`
+    <div class="location-item">
+      <span class="loc-rank">${i+1}</span>
+      <span class="loc-name">${l.name}</span>
+      <div class="loc-bar-wrap"><div class="loc-bar-fill" style="width:${Math.round((l.mentions/maxM)*100)}%"></div></div>
+      <span class="loc-count">${l.mentions?.toLocaleString()||'—'}</span>
+      <div class="loc-sentiment">
+        <div class="loc-seg" style="background:#00D4AA;width:${Math.round(l.posShare*20/100)}px"></div>
+        <div class="loc-seg" style="background:#FF3D5A;width:${Math.round(l.negShare*20/100)}px"></div>
+      </div>
+    </div>`).join('');
+
+  // Zones
+  const zones = {};
+  locs.forEach(l=>{
+    if(!zones[l.zone]) zones[l.zone]={name:l.zone,pos:0,neg:0,neu:0,total:0};
+    zones[l.zone].total+=l.mentions;
+    zones[l.zone].pos+=l.posShare*l.mentions/100;
+    zones[l.zone].neg+=l.negShare*l.mentions/100;
+    zones[l.zone].neu+=l.neuShare*l.mentions/100;
+  });
+
+  document.getElementById('zones-list').innerHTML = Object.values(zones).sort((a,b)=>b.total-a.total).map(z=>{
+    const totalM=Math.max(z.total,1);
+    const posP=Math.round(z.pos/totalM*100), negP=Math.round(z.neg/totalM*100), neuP=100-posP-negP;
+    return `<div class="zone-item">
+      <div class="zone-name">${z.name}</div>
+      <div class="zone-bar">
+        <div style="width:${posP}%;background:#00D4AA;height:100%"></div>
+        <div style="width:${negP}%;background:#FF3D5A;height:100%"></div>
+        <div style="width:${Math.max(0,neuP)}%;background:#FFB020;height:100%"></div>
+      </div>
+      <div class="zone-stats"><span>+${posP}% pos</span><span>${negP}% neg</span><span>${z.total.toLocaleString()} mentions</span></div>
+    </div>`;
+  }).join('');
+}
+
+// ── AI INSIGHTS ──────────────────────
+async function loadInsights(){
+  const t=S.topics[S.activeId];
+  if(!t) return;
+  const container=document.getElementById('insights-content');
+  container.innerHTML=`<div class="insights-loading"><div class="loading-ring"></div><p>Generating strategic insights for "${t.name}"…</p></div>`;
 
   try {
-    const text = await callClaude(
-      `You are PulseMind's report generator. Write professional intelligence reports for Nigerian political campaigns. Be specific with Nigerian context.`,
-      reportTypes[type], 1000
+    const raw = await callClaude(
+      `You are PulseMind's chief strategist. 15 years of Nigerian political intelligence. Return ONLY valid JSON arrays.`,
+      `Generate 6 deep strategic insights for "${t.name}" in Nigerian 2027 election context.
+Return JSON array of exactly 6 objects:
+[{"type":"positive|negative|opportunity","icon":"<emoji>","title":"<title>","body":"<2-3 sentences with specific Nigerian political context — mention states, parties, demographics, current issues>","actions":["<action 1>","<action 2>","<action 3>"]}]
+Cover: voter demographics by geopolitical zone, social media strategy, opposition analysis, opportunity windows, crisis prevention, diaspora sentiment.`,
+      1400
     );
-    const date = new Date().toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' });
-    output.textContent = `PULSEMIND INTELLIGENCE REPORT\n${'─'.repeat(40)}\nTopic: ${topic}\nDate: ${date}\nGenerated by: PulseMind AI\n${'─'.repeat(40)}\n\n${text}\n\n${'─'.repeat(40)}\nPulseMind Intelligence · pulsemind.ng\nConfidential — For campaign use only`;
-    showToast('✅ Report generated — copy or print to save');
-  } catch (e) {
-    output.textContent = 'Report generation failed. Please check your connection.';
+    const insights = safeJSON(raw);
+    container.innerHTML = '';
+    insights.forEach((ins,i)=>{
+      const tc=ins.type==='positive'?'pos':ins.type==='negative'?'neg':'opp';
+      const tl=ins.type==='positive'?'Positive Signal':ins.type==='negative'?'Negative Risk':'Opportunity';
+      setTimeout(()=>{
+        const el=document.createElement('div');
+        el.className='insight-full';
+        el.innerHTML=`
+          <div class="ifc-type ${tc}">// ${tl}</div>
+          <div class="ifc-title">${ins.icon} ${ins.title}</div>
+          <div class="ifc-body">${ins.body}</div>
+          ${ins.actions?`<div class="ifc-actions">${ins.actions.map(a=>`<span class="action-tag">→ ${a}</span>`).join('')}</div>`:''}`;
+        container.appendChild(el);
+      },i*140);
+    });
+  } catch(err){
+    container.innerHTML=`<div class="insight-full"><p style="color:#CC1A30;font-size:.88rem">❌ Could not load insights. Check your API key in Vercel settings → Environment Variables → ANTHROPIC_API_KEY.</p></div>`;
+    console.error(err);
   }
 }
 
-async function generateReportForTopic(topic) {
-  state.currentTopic = topic;
-  setView('reports');
-  setTimeout(() => generateReport('strategy'), 300);
+// ── COMPARE TOPICS ───────────────────
+function renderCompare(){
+  const container=document.getElementById('compare-content');
+  const ready=S.topicOrder.filter(id=>S.topics[id]?.status==='ready');
+
+  if(ready.length<2){
+    container.innerHTML=`<div class="compare-empty">Track at least 2 topics to compare them side by side.<br><br><button class="btn-primary" onclick="openAddTopic()">+ Add Another Topic</button></div>`;
+    return;
+  }
+
+  container.innerHTML=ready.map(id=>{
+    const t=S.topics[id];
+    const s=t.data?.sentiment||{};
+    return `<div class="compare-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0"></div>
+        <div class="cc-name">${t.name}</div>
+      </div>
+      <div class="cc-meta">${s.mentions||'—'} mentions · ${s.trendDirection||'—'}</div>
+      <div class="cc-bars">
+        <div class="cc-bar-row">
+          <span class="cc-bar-label">Positive</span>
+          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${s.pos||0}%;background:#00D4AA"></div></div>
+          <span class="cc-bar-val">${s.pos||0}%</span>
+        </div>
+        <div class="cc-bar-row">
+          <span class="cc-bar-label">Negative</span>
+          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${s.neg||0}%;background:#FF3D5A"></div></div>
+          <span class="cc-bar-val">${s.neg||0}%</span>
+        </div>
+        <div class="cc-bar-row">
+          <span class="cc-bar-label">Neutral</span>
+          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${s.neu||0}%;background:#FFB020"></div></div>
+          <span class="cc-bar-val">${s.neu||0}%</span>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:.75rem;color:#888;line-height:1.5">${t.data?.summary?.slice(0,120)||''}…</div>
+      <button class="btn-outline sm" style="width:100%;margin-top:12px" onclick="setActiveTopic('${id}');setMainView('overview')">View Full Analysis →</button>
+    </div>`;
+  }).join('');
 }
 
-// ══════════════════════════════════════════
-//  ALERTS
-// ══════════════════════════════════════════
-function saveAlert() {
-  const threshold = document.getElementById('alert-threshold').value;
-  const topic = document.getElementById('alert-topic').value.trim();
-  if (!topic) { showToast('Please enter a topic for the alert.'); return; }
+// ── LIVE FEED ────────────────────────
+const FEED_TPLS = {
+  positive:[
+    "I'm fully behind {t} after seeing what they've achieved. The youth of Lagos are ready. #Nigeria2027 🇳🇬",
+    "Finally someone speaking our language. {t} understands the suffering of ordinary Nigerians. PVC ready! ✅",
+    "The rally in Abuja today for {t} was massive! Energy was unreal. This is a movement, not just a campaign.",
+    "My people in Anambra are galvanised. {t} offers real hope for the South East. We will vote!",
+    "After much research, {t} has the most credible economic plan for Nigeria. The numbers actually add up."
+  ],
+  negative:[
+    "How can anyone trust {t} after everything we've been through? Empty promises again. Nigeria deserves better.",
+    "Fuel is still ₦1,200/litre, dollar at ₦1,600, and {t} is talking about 2027? Fix Nigeria first!",
+    "{t} has no plan for the North-East security crisis. Thousands are displaced and we hear nothing. Shameful.",
+    "Same recycled politicians backing {t}. Until we have new blood, nothing will change in Nigeria. #JapaBetter",
+    "The hypocrisy of {t}'s supporters is unbelievable. Where were they when Nigerians were suffering?"
+  ],
+  neutral:[
+    "Still undecided on {t}. Need to see more specific policies on education and healthcare before deciding.",
+    "Watching the debate on {t}. Interesting points on both sides. Lagos voters need to think carefully. 🤔",
+    "Has anyone done a proper policy comparison between the candidates? {t} vs the others — real talk only.",
+  ]
+};
+const NG_PEOPLE=[
+  {n:'Chukwuemeka Okafor',h:'@chuks_lag',i:'CO',bg:'#E0D4FF',tc:'#5B3FCC'},
+  {n:'Fatima Al-Hassan',h:'@fatima_kano',i:'FA',bg:'#D4F5EC',tc:'#007A62'},
+  {n:'Babatunde Adeyemi',h:'@babs_ibadan',i:'BA',bg:'#FFD4DC',tc:'#CC1A30'},
+  {n:'Ngozi Eze',h:'@ngozi_abj',i:'NE',bg:'#D4E8FF',tc:'#0055CC'},
+  {n:'Ibrahim Musa',h:'@ibro_kd',i:'IM',bg:'#FFE8B3',tc:'#8B5000'},
+  {n:'Adaeze Okonkwo',h:'@ada_enugu',i:'AO',bg:'#F4D4FF',tc:'#6B00AA'},
+  {n:'Yusuf Garba',h:'@yusuf_sk',i:'YG',bg:'#D4FFE8',tc:'#007A40'},
+  {n:'Tolu Balogun',h:'@tolu_ph',i:'TB',bg:'#FFD4F0',tc:'#AA0066'},
+  {n:'Emeka Nwosu',h:'@emeka_owerri',i:'EN',bg:'#D4F0FF',tc:'#0066AA'},
+  {n:'Hauwa Shehu',h:'@hauwa_maid',i:'HS',bg:'#FFF4D4',tc:'#AA6600'},
+];
+const PLATFORMS=['X (Twitter)','Facebook','Reddit','Nairaland','WhatsApp Channel'];
 
-  const list = document.getElementById('active-alerts-list');
-  const item = document.createElement('div');
-  item.className = 'alert-item';
-  item.innerHTML = `
-    <div class="alert-item-info">
-      <strong>${topic}</strong>
-      <span>Negative &gt; ${threshold}% → Email</span>
+function genFeedItem(topic, filter){
+  const types=['positive','negative','neutral'];
+  const weights=[.58,.3,.12];
+  let type = filter && filter!=='all' ? filter : (() => {
+    const r=Math.random();
+    return r<weights[0]?'positive':r<weights[0]+weights[1]?'negative':'neutral';
+  })();
+  const tpls=FEED_TPLS[type];
+  const tpl=tpls[Math.floor(Math.random()*tpls.length)];
+  const person=NG_PEOPLE[Math.floor(Math.random()*NG_PEOPLE.length)];
+  const short=topic.split(' ').slice(0,3).join(' ');
+  const text=tpl.replace(/{t}/g,short);
+  const platform=PLATFORMS[Math.floor(Math.random()*PLATFORMS.length)];
+  const mins=Math.floor(Math.random()*12)+1;
+  const views=Math.floor(Math.random()*50+1)+'K';
+  const likes=Math.floor(Math.random()*5000+100).toLocaleString();
+  const comments=Math.floor(Math.random()*500+10).toLocaleString();
+
+  return `<div class="feed-item ${type}">
+    <div class="feed-avatar" style="background:${person.bg};color:${person.tc}">${person.i}</div>
+    <div class="feed-body">
+      <div class="feed-meta">
+        <span class="feed-name">${person.n}</span>
+        <span class="feed-handle">${person.h}</span>
+        <span class="sp-pill sp-${type==='positive'?'pos':type==='negative'?'neg':'neu'}">${type==='positive'?'😊':type==='negative'?'😡':'😐'} ${type}</span>
+        <span class="feed-time">${mins}m ago</span>
+      </div>
+      <div class="feed-text">${text}</div>
+      <div class="feed-footer">
+        <span class="feed-platform">📍 ${platform}</span>
+        <div class="feed-stats">
+          <span class="feed-stat">👁 ${views}</span>
+          <span class="feed-stat">❤️ ${likes}</span>
+          <span class="feed-stat">💬 ${comments}</span>
+        </div>
+      </div>
     </div>
-    <div class="alert-status active-status">Active</div>`;
-  list.appendChild(item);
-
-  document.getElementById('alert-topic').value = '';
-  showToast(`✅ Alert set for "${topic}" — negative > ${threshold}%`);
+  </div>`;
 }
 
-// ══════════════════════════════════════════
-//  CONTACT FORM
-// ══════════════════════════════════════════
-function submitContact() {
-  const name = document.getElementById('contact-name').value.trim();
-  const email = document.getElementById('contact-email').value.trim();
-  const org = document.getElementById('contact-org').value.trim();
-  const tier = document.getElementById('contact-tier').value;
+function startFeed(){
+  if(S.feedInterval){ clearInterval(S.feedInterval); S.feedInterval=null; }
+  const t=S.topics[S.activeId];
+  const topic=t?.name||'Nigeria 2027';
+  const container=document.getElementById('feed-list');
+  document.getElementById('feed-sub').textContent=`Live mentions for "${topic}"`;
+  container.innerHTML='';
+  for(let i=0;i<10;i++) container.innerHTML+=genFeedItem(topic,S.feedFilter!=='all'?S.feedFilter:null);
 
-  if (!name || !email) { showToast('Please fill in your name and email.'); return; }
-
-  // In production, POST to a form handler (Netlify Forms, Formspree, etc.)
-  showToast(`✅ Request received, ${name}! We'll contact you within 24 hours.`, 4000);
-  document.getElementById('contact-name').value = '';
-  document.getElementById('contact-email').value = '';
-  document.getElementById('contact-org').value = '';
-  document.getElementById('contact-tier').value = '';
+  S.feedInterval=setInterval(()=>{
+    if(S.view!=='feed') return;
+    const item=document.createElement('div');
+    item.innerHTML=genFeedItem(topic,S.feedFilter!=='all'?S.feedFilter:null);
+    container.insertBefore(item.firstElementChild,container.firstChild);
+    while(container.children.length>40) container.removeChild(container.lastChild);
+  },3500);
 }
 
-// ══════════════════════════════════════════
-//  INIT
-// ══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  // Handle window resize for charts
-  let resizeTimer;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      if (state.currentView === 'dashboard') {
-        drawTrendChart(getChartData(state.currentTopic));
-      }
-    }, 200);
-  });
+function setFeedFilter(el,f){
+  document.querySelectorAll('.ff').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  S.feedFilter=f;
+  if(S.feedInterval){clearInterval(S.feedInterval);S.feedInterval=null;}
+  startFeed();
+}
 
-  // Enter key on topic inputs
-  document.getElementById('dash-topic-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') runDashboardAnalysis();
-  });
-  document.getElementById('analyze-topic')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') runAnalysis();
-  });
+// ── REPORTS ──────────────────────────
+async function generateReport(type){
+  const t=S.topics[S.activeId];
+  if(!t?.data){ toast('Select and load a topic first.'); return; }
+  const output=document.getElementById('report-output');
+  output.classList.remove('hidden');
+  output.textContent='⏳ Generating AI report…';
+
+  const prompts={
+    full:`Write a comprehensive intelligence report for "${t.name}" including: Executive Summary, Sentiment Overview (${t.data.sentiment.pos}% positive, ${t.data.sentiment.neg}% negative, ${t.data.sentiment.neu}% neutral, ${t.data.sentiment.mentions} mentions), Platform Breakdown, Top Locations, Key Drivers, and Strategic Recommendations. Nigerian political context, 2027 election cycle.`,
+    strategy:`Write a Campaign Strategy Report for "${t.name}". Include: Current Position, 5 Strategic Recommendations, Message Framework, Risk Mitigation Plan, and 30-day Action Plan. Positive: ${t.data.sentiment.pos}%, Negative: ${t.data.sentiment.neg}%. Nigerian political context.`,
+    crisis:`Write a Crisis Intelligence Report for "${t.name}". Include: Threat Level Assessment, Negative Sentiment Triggers, Affected Regions, Affected Demographics, Immediate Response Playbook (next 48hrs), and Long-term Reputation Recovery Plan. Negative: ${t.data.sentiment.neg}%.`,
+    influencer:`Write an Influencer Intelligence Report for "${t.name}". Include top account analysis, engagement patterns, sentiment direction by account, and recommended engagement strategy. Reference real Nigerian media and political influencers.`
+  };
+
+  try {
+    const text=await callClaude(
+      `You are PulseMind's intelligence report writer. 15 years of Nigerian political consulting. Write professional, specific, actionable reports for Nigerian campaigns and brands.`,
+      prompts[type], 1200
+    );
+    const date=new Date().toLocaleDateString('en-NG',{day:'numeric',month:'long',year:'numeric'});
+    output.textContent=`PULSEMIND INTELLIGENCE REPORT\n${'─'.repeat(44)}\nTopic: ${t.name}\nReport: ${type.toUpperCase()}\nDate: ${date}\nGenerated by: PulseMind AI v2.0\n${'─'.repeat(44)}\n\n${text}\n\n${'─'.repeat(44)}\nPulseMind Intelligence · Nigeria 2027\nConfidential — For authorised use only`;
+    toast('✅ Report ready — scroll down to read');
+  } catch(err){
+    output.textContent='❌ Report generation failed. Check API key.';
+    console.error(err);
+  }
+}
+
+// ── SETTINGS ─────────────────────────
+function renderSettings(){
+  const container=document.getElementById('settings-topics-list');
+  if(!S.topicOrder.length){
+    container.innerHTML='<p style="color:#888;font-size:.85rem">No topics tracked yet.</p>';
+    return;
+  }
+  container.innerHTML=S.topicOrder.map(id=>{
+    const t=S.topics[id];
+    if(!t) return '';
+    return `<div class="settings-topic-row">
+      <div class="str-dot" style="background:${t.color}"></div>
+      <span class="str-name">${t.name}</span>
+      <span class="str-status">${t.status}</span>
+      <button class="str-remove" onclick="removeTopic('${id}')">Remove</button>
+    </div>`;
+  }).join('');
+}
+
+// ── KEYBOARD SHORTCUTS ────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeAddTopic();
+  if((e.ctrlKey||e.metaKey) && e.key==='k'){ e.preventDefault(); openAddTopic(); }
+});
+document.getElementById('new-topic-input')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter') addTopic();
+});
+
+// ── RESIZE ────────────────────────────
+let resizeT;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeT);
+  resizeT=setTimeout(()=>{
+    const t=S.topics[S.activeId];
+    if(t?.data?.weekTrend) drawTrend(t.data.weekTrend);
+  },200);
+});
+
+// ── INIT ──────────────────────────────
+document.addEventListener('DOMContentLoaded',()=>{
+  renderTopicList();
+  setMainView('empty');
 });
