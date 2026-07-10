@@ -906,7 +906,62 @@ window.addEventListener('resize',()=>{
 });
 
 // ── INIT ──────────────────────────────
-document.addEventListener('DOMContentLoaded',()=>{
+// init handled below by landing page loader
+
+/* ═══════════════════════════════════════
+   LANDING PAGE FUNCTIONS
+═══════════════════════════════════════ */
+
+function enterDashboard(){
+  const landing = document.getElementById('landing');
+  const app = document.getElementById('dashboard-app');
+  if(landing) landing.style.display = 'none';
+  if(app) app.style.display = 'block';
+  // Ensure body doesn't overflow
+  document.body.style.overflow = 'hidden';
+}
+
+function showLanding(){
+  const landing = document.getElementById('landing');
+  const app = document.getElementById('dashboard-app');
+  if(landing) landing.style.display = 'block';
+  if(app) app.style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+function scrollToContact(){
+  document.getElementById('contact')?.scrollIntoView({ behavior:'smooth' });
+}
+
+function submitContact(){
+  const name  = document.getElementById('c-name')?.value.trim();
+  const email = document.getElementById('c-email')?.value.trim();
+  if(!name || !email){ toast('Please enter your name and email.'); return; }
+  // In production, POST to a form handler (Netlify Forms, Formspree, etc.)
+  alert(`✅ Thank you ${name}!\n\nWe've received your request and will contact you within 24 hours.\n\nYou can also try the dashboard right now — no sign-up needed.`);
+  // Clear form
+  ['c-name','c-org','c-email','c-phone','c-plan'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.value='';
+  });
+}
+
+// Override DOMContentLoaded to show landing first
+document.addEventListener('DOMContentLoaded', ()=>{
+  // Show landing page, hide dashboard
+  const landing = document.getElementById('landing');
+  const app = document.getElementById('dashboard-app');
+  if(landing) landing.style.display = 'block';
+  if(app) app.style.display = 'none';
+  document.body.style.overflow = 'auto';
+
+  // Init sidebar back-to-home button in dashboard
+  const sbLogo = document.querySelector('.sb-logo');
+  if(sbLogo){
+    sbLogo.style.cursor = 'pointer';
+    sbLogo.title = 'Back to home';
+    sbLogo.addEventListener('click', showLanding);
+  }
+
   renderTopicList();
-  setMainView('empty');
 });
