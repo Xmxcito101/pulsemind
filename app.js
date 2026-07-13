@@ -21,12 +21,12 @@ function nextColor(){ return COLORS[colorIdx++ % COLORS.length]; }
 
 // ── CLAUDE API ─────────────────────────
 async function callClaude(system, user, maxTokens=1000){
-  const res = await fetch('/api/claude',{
+  const res = await fetch('https://pulsemind-proxy.olusamson22.workers.dev',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens, system, messages:[{role:'user',content:user}] })
   });
-  if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error||`HTTP ${res.status}`); }
+  if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`); }
   const d = await res.json();
   return d.content.map(b=>b.text||'').join('');
 }
