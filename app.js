@@ -20,15 +20,43 @@ let colorIdx = 0;
 function nextColor(){ return COLORS[colorIdx++ % COLORS.length]; }
 
 // ── CLAUDE API ─────────────────────────
+// API configuration - update ANTHROPIC_KEY with your key from console.anthropic.com
+const PROXY_URL = 'https://pulsemind-proxy.olusamson22.workers.dev';
+
 async function callClaude(system, user, maxTokens=1000){
-  const res = await fetch('https://pulsemind-proxy.olusamson22.workers.dev',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens, system, messages:[{role:'user',content:user}] })
-  });
-  if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error?.message||`HTTP ${res.status}`); }
-  const d = await res.json();
-  return d.content.map(b=>b.text||'').join('');
+  let res;
+  try {
+    res = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        system: system,
+        messages: [{ role: 'user', content: user }]
+      })
+    });
+  } catch(networkErr) {
+    throw new Error('Network error — check your internet connection. ' + networkErr.message);
+  }
+
+  let d;
+  try {
+    d = await res.json();
+  } catch(parseErr) {
+    throw new Error('Worker returned invalid response. Status: ' + res.status);
+  }
+
+  if (!res.ok) {
+    const msg = d?.error?.message || d?.error || JSON.stringify(d);
+    throw new Error('API Error ' + res.status + ': ' + msg);
+  }
+
+  if (!d.content || !d.content.length) {
+    throw new Error('Empty response from Claude API. Raw: ' + JSON.stringify(d).slice(0,200));
+  }
+
+  return d.content.map(b => b.text || '').join('');
 }
 
 function safeJSON(raw){
@@ -121,8 +149,9 @@ async function addTopic(){
   } catch(err){
     S.topics[id].status = 'error';
     renderTopicList();
-    toast(`❌ Failed to load "${name}". Check API key.`);
-    console.error(err);
+    showErrorState(err.message);
+    toast('❌ Error: ' + err.message);
+    console.error('Add topic error:', err);
   }
 }
 
@@ -183,8 +212,9 @@ async function refreshActiveTopic(){
   } catch(err){
     t.status='error';
     renderTopicList();
-    showErrorState();
-    toast('❌ Refresh failed. Check API.');
+    showErrorState(err.message);
+    toast('❌ ' + err.message);
+    console.error('Refresh error:', err);
   }
 }
 
@@ -406,8 +436,9 @@ function showLoadingState(){
   document.getElementById('ov-drivers').innerHTML='<div class="skeleton-block"></div><div class="skeleton-block"></div>';
 }
 
-function showErrorState(){
-  document.getElementById('ov-summary').textContent = '❌ Could not load analysis. Check your API key in Vercel settings, then click Refresh.';
+function showErrorState(msg){
+  const errMsg = msg || 'Could not load analysis.';
+  document.getElementById('ov-summary').textContent = '❌ ' + errMsg + ' — Click Refresh to try again.';
   const badge=document.getElementById('summary-badge');
   if(badge){ badge.textContent='Error'; badge.className='badge error-badge'; }
 }
