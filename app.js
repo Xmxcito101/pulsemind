@@ -60,10 +60,43 @@ async function callClaude(system, user, maxTokens=1000){
 }
 
 function safeJSON(raw){
-  const c = raw.replace(/```json|```/g,'').trim();
-  const s = c.indexOf('[')!==-1 && (c.indexOf('{')===-1 || c.indexOf('[') < c.indexOf('{')) ? '[' : '{';
-  const e = s==='[' ? ']' : '}';
-  return JSON.parse(c.slice(c.indexOf(s), c.lastIndexOf(e)+1));
+  // Strip markdown code fences
+  let c = raw.replace(/```json|```/g,'').trim();
+  
+  // Remove any trailing commas before ] or } (common Claude JSON mistake)
+  c = c.replace(/,(\s*[\]}])/g, '$1');
+  
+  // Try direct parse first
+  try { return JSON.parse(c); } catch(e1) {}
+  
+  // Try extracting array
+  try {
+    const as = c.indexOf('['), ae = c.lastIndexOf(']');
+    if(as !== -1 && ae !== -1 && ae > as) {
+      let arr = c.slice(as, ae+1);
+      arr = arr.replace(/,(\s*[\]}])/g, '$1');
+      return JSON.parse(arr);
+    }
+  } catch(e2) {}
+  
+  // Try extracting object
+  try {
+    const os = c.indexOf('{'), oe = c.lastIndexOf('}');
+    if(os !== -1 && oe !== -1 && oe > os) {
+      let obj = c.slice(os, oe+1);
+      obj = obj.replace(/,(\s*[\]}])/g, '$1');
+      return JSON.parse(obj);
+    }
+  } catch(e3) {}
+
+  // Last resort — try to fix common issues
+  try {
+    // Fix unescaped quotes inside strings
+    let fixed = c.replace(/([^\])"([^"]*)"(\s*[^:,\]}])/g, '$1\"$2\"$3');
+    return JSON.parse(fixed);
+  } catch(e4) {
+    throw new Error('JSON parse failed after all attempts. Raw: ' + c.slice(0,200));
+  }
 }
 
 // ── TOAST ──────────────────────────────
@@ -220,146 +253,94 @@ async function refreshActiveTopic(){
 
 // ── FETCH ALL DATA FOR A TOPIC ────────
 async function fetchTopicData(name){
-  const system = `You are PulseMind's data engine — a senior Nigerian political intelligence analyst with 15 years experience. You understand Nigerian social media, politics, and public discourse deeply. Return ONLY valid JSON, no markdown, no preamble, no commentary.`;
+  const sys = `You are PulseMind's data engine — a senior Nigerian political intelligence analyst. Return ONLY valid JSON, no markdown, no preamble, no commentary.`;
 
-  const prompt = `Generate comprehensive real-time sentiment intelligence data for the topic: "${name}" in Nigerian political/social context (2027 presidential election cycle).
+  // CALL 1: Core sentiment, sources, locations, week trend
+  const prompt1 = `Generate sentiment intelligence for topic: "${name}" in Nigerian political context (2027 election).
 
-Return this EXACT JSON structure:
-
+Return ONLY this JSON (no extra text):
 {
   "sentiment": {
-    "pos": <number 0-100>,
-    "neg": <number 0-100>,
-    "neu": <number 0-100>,
-    "mentions": "<e.g. 284K or 1.2M>",
-    "mentionsRaw": <number>,
+    "pos": <0-100>,
+    "neg": <0-100>,
+    "neu": <0-100>,
+    "mentions": "<e.g. 284K>",
     "posChange": "<e.g. +5.2%>",
     "negChange": "<e.g. +3.1%>",
     "trendDirection": "rising|falling|stable",
-    "topPlatform": "<platform>",
-    "dominantDemographic": "<e.g. Lagos youth, Northern voters>"
+    "topPlatform": "<platform name>",
+    "dominantDemographic": "<e.g. Lagos youth>"
   },
-  "summary": "<2-3 sentence expert summary of public sentiment, very specific to Nigeria>",
+  "summary": "<2-3 sentences specific to Nigeria>",
   "keyDrivers": {
     "positive": ["<driver>","<driver>","<driver>"],
     "negative": ["<driver>","<driver>","<driver>"]
   },
   "weekTrend": [
-    {"day":"Mon","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Tue","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Wed","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Thu","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Fri","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Sat","pos":<n>,"neg":<n>,"neu":<n>},
-    {"day":"Sun","pos":<n>,"neg":<n>,"neu":<n>}
+    {"day":"Mon","pos":60,"neg":25,"neu":15},
+    {"day":"Tue","pos":58,"neg":28,"neu":14},
+    {"day":"Wed","pos":62,"neg":24,"neu":14},
+    {"day":"Thu","pos":65,"neg":22,"neu":13},
+    {"day":"Fri","pos":63,"neg":24,"neu":13},
+    {"day":"Sat","pos":61,"neg":25,"neu":14},
+    {"day":"Sun","pos":64,"neg":23,"neu":13}
   ],
   "sources": [
-    {
-      "name": "X (Twitter)",
-      "icon": "🐦",
-      "color": "#1DA1F2",
-      "bgColor": "#EFF8FF",
-      "type": "Social Media",
-      "mentions": "<number like 142K>",
-      "posShare": <0-100>,
-      "negShare": <0-100>,
-      "neuShare": <0-100>,
-      "topPost": "<realistic Nigerian tweet about this topic, max 140 chars>",
-      "activeAccounts": "<number like 8.4K>",
-      "reach": "<number like 12.4M>"
-    },
-    {
-      "name": "Facebook",
-      "icon": "📘",
-      "color": "#1877F2",
-      "bgColor": "#EEF3FF",
-      "type": "Social Media",
-      "mentions": "<number>",
-      "posShare": <0-100>,
-      "negShare": <0-100>,
-      "neuShare": <0-100>,
-      "topPost": "<realistic Nigerian Facebook post about this topic>",
-      "activeAccounts": "<number>",
-      "reach": "<number>"
-    },
-    {
-      "name": "Reddit",
-      "icon": "🔴",
-      "color": "#FF4500",
-      "bgColor": "#FFF2EE",
-      "type": "Forum",
-      "mentions": "<number>",
-      "posShare": <0-100>,
-      "negShare": <0-100>,
-      "neuShare": <0-100>,
-      "topPost": "<realistic Nigerian Reddit post about this topic>",
-      "activeAccounts": "<number>",
-      "reach": "<number>"
-    },
-    {
-      "name": "Nigerian News Sites",
-      "icon": "📰",
-      "color": "#333333",
-      "bgColor": "#F5F5F5",
-      "type": "News Media",
-      "mentions": "<number>",
-      "posShare": <0-100>,
-      "negShare": <0-100>,
-      "neuShare": <0-100>,
-      "topPost": "<realistic Nigerian news headline about this topic>",
-      "activeAccounts": "<number like 47>",
-      "reach": "<number>"
-    },
-    {
-      "name": "YouTube",
-      "icon": "▶️",
-      "color": "#FF0000",
-      "bgColor": "#FFF0F0",
-      "type": "Video Platform",
-      "mentions": "<number>",
-      "posShare": <0-100>,
-      "negShare": <0-100>,
-      "neuShare": <0-100>,
-      "topPost": "<realistic YouTube comment/title about this topic>",
-      "activeAccounts": "<number>",
-      "reach": "<number>"
-    }
-  ],
-  "accounts": [
-    {
-      "rank": 1,
-      "name": "<real or realistic Nigerian account name>",
-      "handle": "@<handle>",
-      "platform": "Twitter|Facebook|YouTube|Reddit",
-      "followers": "<number like 1.8M>",
-      "posts": <number>,
-      "views": "<number like 4.2M>",
-      "likes": "<number like 180K>",
-      "comments": "<number like 22K>",
-      "sentiment": "positive|negative|neutral",
-      "initials": "<2 chars>",
-      "avatarBg": "<hex color>",
-      "avatarTc": "<hex color>"
-    }
+    {"name":"X (Twitter)","icon":"🐦","color":"#1DA1F2","bgColor":"#EFF8FF","type":"Social Media","mentions":"<e.g. 142K>","posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>,"topPost":"<realistic Nigerian tweet max 120 chars>","activeAccounts":"<e.g. 8.4K>","reach":"<e.g. 12.4M>"},
+    {"name":"Facebook","icon":"📘","color":"#1877F2","bgColor":"#EEF3FF","type":"Social Media","mentions":"<number>","posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>,"topPost":"<realistic Nigerian Facebook post>","activeAccounts":"<number>","reach":"<number>"},
+    {"name":"Reddit","icon":"🔴","color":"#FF4500","bgColor":"#FFF2EE","type":"Forum","mentions":"<number>","posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>,"topPost":"<realistic Nigerian Reddit post>","activeAccounts":"<number>","reach":"<number>"},
+    {"name":"Nigerian News","icon":"📰","color":"#333333","bgColor":"#F5F5F5","type":"News Media","mentions":"<number>","posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>,"topPost":"<realistic Nigerian news headline>","activeAccounts":"<number>","reach":"<number>"},
+    {"name":"YouTube","icon":"▶️","color":"#FF0000","bgColor":"#FFF0F0","type":"Video","mentions":"<number>","posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>,"topPost":"<realistic YouTube comment>","activeAccounts":"<number>","reach":"<number>"}
   ],
   "locations": [
-    {"name":"Lagos","zone":"South West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Abuja (FCT)","zone":"North Central","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Kano","zone":"North West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Rivers (Port Harcourt)","zone":"South South","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Oyo (Ibadan)","zone":"South West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Anambra","zone":"South East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Kaduna","zone":"North West","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Delta","zone":"South South","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Enugu","zone":"South East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>},
-    {"name":"Borno","zone":"North East","mentions":<number>,"posShare":<0-100>,"negShare":<0-100>,"neuShare":<0-100>}
+    {"name":"Lagos","zone":"South West","mentions":45000,"posShare":65,"negShare":22,"neuShare":13},
+    {"name":"Abuja (FCT)","zone":"North Central","mentions":32000,"posShare":58,"negShare":28,"neuShare":14},
+    {"name":"Kano","zone":"North West","mentions":28000,"posShare":42,"negShare":44,"neuShare":14},
+    {"name":"Rivers (Port Harcourt)","zone":"South South","mentions":22000,"posShare":60,"negShare":26,"neuShare":14},
+    {"name":"Oyo (Ibadan)","zone":"South West","mentions":18000,"posShare":62,"negShare":24,"neuShare":14},
+    {"name":"Anambra","zone":"South East","mentions":15000,"posShare":70,"negShare":18,"neuShare":12},
+    {"name":"Kaduna","zone":"North West","mentions":12000,"posShare":45,"negShare":40,"neuShare":15},
+    {"name":"Delta","zone":"South South","mentions":10000,"posShare":58,"negShare":28,"neuShare":14},
+    {"name":"Enugu","zone":"South East","mentions":9000,"posShare":68,"negShare":20,"neuShare":12},
+    {"name":"Borno","zone":"North East","mentions":7000,"posShare":38,"negShare":46,"neuShare":16}
   ]
 }
 
-accounts array must have exactly 20 items. Make all data realistic for Nigerian political discourse in 2026. Pos+neg+neu must equal 100 for sentiment and each source/location.`;
+Make ALL numbers and text realistic for Nigerian political discourse about "${name}" in 2026. pos+neg+neu must equal 100 for sentiment and each source.`;
 
-  const raw = await callClaude(system, prompt, 3000);
-  return safeJSON(raw);
+  // CALL 2: Top 20 accounts separately
+  const prompt2 = `Generate top 20 social media accounts discussing "${name}" in Nigeria in 2026.
+
+Return ONLY a JSON array of exactly 10 accounts (to keep response small):
+[
+  {"rank":1,"name":"<Nigerian media/person name>","handle":"@<handle>","platform":"Twitter|Facebook|YouTube","followers":"<e.g. 1.8M>","posts":<number>,"views":"<e.g. 4.2M>","likes":"<e.g. 180K>","comments":"<e.g. 22K>","sentiment":"positive|negative|neutral","initials":"<2 chars>","avatarBg":"<hex>","avatarTc":"<hex>"}
+]
+
+Include real Nigerian accounts like Sahara Reporters, Premium Times, Channels TV, APC/PDP handles, political commentators. Make posts/views/likes/comments realistic.`;
+
+  try {
+    // Run both calls in parallel for speed
+    const [raw1, raw2] = await Promise.all([
+      callClaude(sys, prompt1, 2000),
+      callClaude(sys, prompt2, 1500)
+    ]);
+
+    const data1 = safeJSON(raw1);
+    let accounts = [];
+    try {
+      accounts = safeJSON(raw2);
+      if (!Array.isArray(accounts)) accounts = accounts.accounts || [];
+    } catch(e) {
+      console.warn('Accounts parse failed, using empty array:', e.message);
+      accounts = [];
+    }
+
+    return { ...data1, accounts };
+
+  } catch(err) {
+    console.error('fetchTopicData error:', err);
+    throw err;
+  }
 }
 
 // ── RENDER TOPIC LIST ─────────────────
